@@ -97,7 +97,7 @@ touch backend/tests/__init__.py
 ```
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
-python-kraken-sdk==4.0.0
+python-kraken-sdk==3.2.7
 supabase==2.7.0
 apscheduler==3.10.4
 pydantic==2.7.0
