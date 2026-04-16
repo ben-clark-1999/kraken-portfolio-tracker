@@ -1,3 +1,4 @@
+from collections import defaultdict
 from decimal import Decimal
 from kraken.spot import User, Market
 from backend.config import settings
@@ -23,14 +24,13 @@ ASSET_MAP: dict[str, dict] = {
     },
 }
 
-# Mapping from Kraken pair name → display asset name (for trade history)
-# Includes both current and legacy pair names — Kraken renamed XETHZAUD → ETHAUD,
-# but historical trades may still appear under the old name.
-PAIR_TO_ASSET: dict[str, str] = {
-    "ETHAUD":   "ETH",
-    "XETHZAUD": "ETH",
-    "SOLAUD":   "SOL",
-    "ADAAUD":   "ADA",
+# Mapping from ledger asset code → display asset name (used for trade history).
+# The ledger uses Kraken's native asset codes (XETH, SOL, ADA) rather than trading
+# pair names. These are the only assets we currently track as tradeable.
+LEDGER_ASSET_TO_DISPLAY: dict[str, str] = {
+    "XETH": "ETH",
+    "SOL":  "SOL",
+    "ADA":  "ADA",
 }
 
 _user: User | None = None
@@ -100,51 +100,80 @@ def get_ticker_prices(assets: list[str]) -> dict[str, Decimal]:
 
 def get_trade_history(since_trade_id: str | None = None) -> list[dict]:
     """
-    Returns all buy trades for tracked asset pairs.
-    Paginates through all pages on first run (since_trade_id=None).
-    On subsequent runs, pass the last known trade_id to fetch only new trades.
+    Returns all buy trades for tracked assets, reconstructed from ledger entries.
+
+    Kraken represents a buy as two ledger entries sharing a refid: one `spend`
+    entry in ZAUD (the fiat leaving) and one `receive` entry in the crypto
+    asset. We pair them by refid to rebuild the trade. The refid serves as the
+    trade_id.
+
+    Results are sorted newest-first. Pass `since_trade_id` on subsequent runs
+    to return only trades newer than the last one you stored.
 
     Each returned dict contains:
-      trade_id, asset, time (float unix), price (str), vol (str), cost (str)
+      trade_id (the refid), asset, time (float unix), price (str), vol (str), cost (str)
     """
     user = _get_user()
-    trades: list[dict] = []
+    all_entries: dict[str, dict] = {}
     offset = 0
 
     while True:
         try:
-            result = user.get_trades_history(ofs=offset)
+            result = user.get_ledgers_info(ofs=offset)
         except Exception as e:
             raise KrakenServiceError(f"get_trade_history failed: {e}") from e
-        raw_trades: dict = result.get("trades", {})
+        ledger: dict = result.get("ledger", {})
         count: int = result.get("count", 0)
 
-        for trade_id, trade in raw_trades.items():
-            # Stop if we've reached a trade we already processed
-            if since_trade_id and trade_id == since_trade_id:
-                return trades
-
-            pair = trade.get("pair", "")
-            asset = PAIR_TO_ASSET.get(pair)
-            if not asset:
-                continue  # skip non-tracked pairs
-            if trade.get("type") != "buy":
-                continue  # skip sells for Phase 1
-
-            trades.append({
-                "trade_id": trade_id,
-                "asset": asset,
-                "time": float(trade["time"]),
-                "price": str(trade["price"]),
-                "vol": str(trade["vol"]),
-                "cost": str(trade["cost"]),
-            })
-
-        page_len = len(raw_trades)
+        page_len = len(ledger)
         if page_len == 0:
             break
+        all_entries.update(ledger)
         offset += page_len
         if offset >= count:
             break
+
+    # Group ledger entries by refid. A buy trade appears as one `spend` + one
+    # `receive` sharing a single refid.
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for entry in all_entries.values():
+        groups[entry["refid"]].append(entry)
+
+    trades: list[dict] = []
+    for refid, entries in groups.items():
+        spend = next((e for e in entries if e.get("type") == "spend"), None)
+        receive = next((e for e in entries if e.get("type") == "receive"), None)
+        if not spend or not receive:
+            continue  # not a buy trade (transfers, staking, deposits, etc.)
+
+        asset = LEDGER_ASSET_TO_DISPLAY.get(receive.get("asset", ""))
+        if not asset:
+            continue  # untracked asset (e.g. EIGEN)
+
+        vol = Decimal(str(receive["amount"]))
+        cost_aud = abs(Decimal(str(spend["amount"])))
+        if vol <= 0:
+            continue
+        price = cost_aud / vol
+
+        trades.append({
+            "trade_id": refid,
+            "asset": asset,
+            "time": float(receive["time"]),
+            "price": str(price),
+            "vol": str(vol),
+            "cost": str(cost_aud),
+        })
+
+    # Newest first — matches how Kraken's own trades_history endpoint ordered results.
+    trades.sort(key=lambda t: t["time"], reverse=True)
+
+    if since_trade_id:
+        filtered: list[dict] = []
+        for t in trades:
+            if t["trade_id"] == since_trade_id:
+                break
+            filtered.append(t)
+        return filtered
 
     return trades
