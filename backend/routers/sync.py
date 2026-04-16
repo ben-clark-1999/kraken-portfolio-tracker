@@ -1,4 +1,7 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
+
 from backend.services import kraken_service
 from backend.services.sync_service import (
     get_last_synced_trade_id,
@@ -6,6 +9,7 @@ from backend.services.sync_service import (
     record_sync,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 
@@ -18,5 +22,11 @@ async def trigger_sync() -> dict:
         record_sync(last_trade_id=new_last_id or last_trade_id, status="success")
         return {"synced": len(trades), "last_trade_id": new_last_id}
     except Exception as e:
-        record_sync(last_trade_id=None, status="error", error_message=str(e))
+        # Preserve the real stack trace; record_sync only persists str(e).
+        logger.exception("Sync failed")
+        try:
+            record_sync(last_trade_id=None, status="error", error_message=str(e))
+        except Exception:
+            # Don't let a sync_log write failure mask the original error.
+            logger.exception("Failed to record sync error row")
         raise HTTPException(status_code=502, detail=str(e))
