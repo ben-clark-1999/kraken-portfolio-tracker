@@ -180,7 +180,7 @@ Failures are caught, logged, and written to `sync_log` with `status: "error"`. T
 
 ### Components
 
-**`Dashboard.tsx`** — fetches all three endpoints in parallel on mount via `Promise.all`. Exposes `refreshDashboard()` called both on mount and on manual refresh.
+**`Dashboard.tsx`** — fetches all three endpoints in parallel on mount via `Promise.allSettled` (so one failure doesn't block the others). Exposes `refreshDashboard()` called both on mount and on manual refresh.
 
 | Component | Data source | Notes |
 |-----------|-------------|-------|
@@ -206,7 +206,7 @@ TypeScript interfaces in `types/` mirror Pydantic models — kept flat, no compl
 - **Refresh button** — in `SummaryBar`, disables during fetch, shows spinner. Stale data remains visible while refreshing.
 - **Next DCA date** — derived from `max(acquired_at) + 7 days` across DCA history data already in memory (weekly DCA cadence). Displayed in `SummaryBar`.
 - **Chart toggle** — `PortfolioLineChart` local state: `"total"` renders one `<Line>`, `"per-asset"` renders three `<Line>` components (ETH/SOL/ADA). Per-asset data already present in snapshot JSONB.
-- **Failed endpoint isolation** — one failed fetch in `Promise.all` shows an inline error state for that section only; other sections render normally.
+- **Failed endpoint isolation** — one failed fetch in `Promise.allSettled` shows an inline error state for that section only; other sections render normally.
 
 ### Charting & Styling
 
@@ -226,7 +226,7 @@ TypeScript interfaces in `types/` mirror Pydantic models — kept flat, no compl
 
 ### Frontend
 
-- `Promise.all` fetches are individually wrapped — one failure doesn't blank the dashboard.
+- `Promise.allSettled` fetches the three endpoints in parallel — one failure doesn't blank the dashboard or block the others.
 - Failed sections show inline error state with retry option.
 - Refresh button disables during fetch; stale data remains visible during refresh.
 
