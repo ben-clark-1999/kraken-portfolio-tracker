@@ -14,12 +14,15 @@ export default function SummaryBar({ summary, onRefresh, refreshing }: Props) {
     timeStyle: 'short',
   })
 
-  const nextDCA = summary.next_dca_date
-    ? new Date(summary.next_dca_date).toLocaleDateString('en-AU', {
-        timeZone: 'Australia/Sydney',
-        dateStyle: 'medium',
-      })
-    : '—'
+  // Parse YYYY-MM-DD as a local calendar date, not UTC midnight, to avoid
+  // an off-by-one shift when rendering through Intl in another timezone.
+  let nextDCA = '—'
+  if (summary.next_dca_date) {
+    const [y, m, d] = summary.next_dca_date.split('-').map(Number)
+    nextDCA = new Date(y, m - 1, d).toLocaleDateString('en-AU', {
+      dateStyle: 'medium',
+    })
+  }
 
   return (
     <div className="flex items-center justify-between px-6 py-4 bg-gray-800 border-b border-gray-700">
@@ -37,6 +40,7 @@ export default function SummaryBar({ summary, onRefresh, refreshing }: Props) {
           <p className="text-white font-medium">{lastUpdated}</p>
         </div>
         <button
+          type="button"
           onClick={onRefresh}
           disabled={refreshing}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
