@@ -11,7 +11,7 @@ class KrakenServiceError(Exception):
 ASSET_MAP: dict[str, dict] = {
     "ETH": {
         "keys": ["XETH", "ETH", "ETH.B", "ETH.S", "ETH2", "ETH2.S", "ETH.F"],
-        "pair": "XETHZAUD",
+        "pair": "ETHAUD",
     },
     "SOL": {
         "keys": ["SOL", "SOL.S", "SOL.F", "SOL03.S"],
@@ -24,7 +24,10 @@ ASSET_MAP: dict[str, dict] = {
 }
 
 # Mapping from Kraken pair name → display asset name (for trade history)
+# Includes both current and legacy pair names — Kraken renamed XETHZAUD → ETHAUD,
+# but historical trades may still appear under the old name.
 PAIR_TO_ASSET: dict[str, str] = {
+    "ETHAUD":   "ETH",
     "XETHZAUD": "ETH",
     "SOLAUD":   "SOL",
     "ADAAUD":   "ADA",
