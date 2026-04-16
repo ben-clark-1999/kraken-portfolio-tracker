@@ -5,8 +5,8 @@ CREATE TABLE test.lots (
   asset TEXT NOT NULL,
   acquired_at TIMESTAMPTZ NOT NULL,
   quantity NUMERIC(20, 8) NOT NULL,
-  cost_aud NUMERIC(20, 2) NOT NULL,
-  cost_per_unit_aud NUMERIC(20, 2) NOT NULL,
+  cost_aud NUMERIC(20, 8) NOT NULL,
+  cost_per_unit_aud NUMERIC(20, 8) NOT NULL,
   kraken_trade_id TEXT UNIQUE NOT NULL,
   remaining_quantity NUMERIC(20, 8) NOT NULL
 );
