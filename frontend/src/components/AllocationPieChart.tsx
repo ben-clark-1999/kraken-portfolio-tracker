@@ -40,13 +40,11 @@ export default function AllocationPieChart({ positions }: Props) {
             ))}
           </Pie>
           <Tooltip
-            formatter={((value: number | undefined, name: string | undefined, item: any) => {
+            formatter={(value, name, item) => {
               const numValue = typeof value === 'number' ? value : 0
-              return [
-                `${formatPct(numValue)} (${formatAUD(item.payload?.value_aud ?? 0)})`,
-                name ?? 'Value',
-              ]
-            }) as any}
+              const aud = (item.payload as { value_aud?: number } | undefined)?.value_aud ?? 0
+              return [`${formatPct(numValue)} (${formatAUD(aud)})`, String(name ?? '')]
+            }}
             contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px' }}
             labelStyle={{ color: '#F9FAFB' }}
           />
