@@ -1,13 +1,10 @@
 from decimal import Decimal
 from datetime import datetime, timedelta, date
-from zoneinfo import ZoneInfo
 
 from backend.models.portfolio import AssetPosition, PortfolioSummary
 from backend.models.trade import Lot, DCAEntry
 from backend.utils.fifo import calculate_cost_basis, LotInput
 from backend.utils.timezone import to_iso, now_aest
-
-AEST = ZoneInfo("Australia/Sydney")
 
 
 def calculate_summary(
@@ -16,8 +13,9 @@ def calculate_summary(
     lots: list[Lot],
 ) -> PortfolioSummary:
     total_value = sum(
-        balances.get(asset, Decimal("0")) * prices.get(asset, Decimal("0"))
-        for asset in balances
+        (balances.get(asset, Decimal("0")) * prices.get(asset, Decimal("0"))
+         for asset in balances),
+        Decimal("0"),
     )
 
     positions: list[AssetPosition] = []
@@ -48,11 +46,12 @@ def calculate_summary(
             allocation_pct=float(allocation_pct),
         ))
 
+    next_dca = calculate_next_dca_date(lots)
     return PortfolioSummary(
         total_value_aud=float(total_value),
         positions=sorted(positions, key=lambda p: p.value_aud, reverse=True),
         captured_at=to_iso(now_aest()),
-        next_dca_date=calculate_next_dca_date(lots).isoformat() if calculate_next_dca_date(lots) else None,
+        next_dca_date=next_dca.isoformat() if next_dca else None,
     )
 
 
