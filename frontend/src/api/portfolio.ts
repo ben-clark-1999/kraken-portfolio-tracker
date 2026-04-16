@@ -2,8 +2,8 @@ import type { PortfolioSummary, PortfolioSnapshot, DCAEntry } from '../types'
 
 async function fetchJSON<T>(url: string): Promise<T> {
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`${url} returned ${res.status}`)
-  return res.json() as Promise<T>
+  if (!res.ok) throw new Error(`${url} returned ${res.status} ${res.statusText}`)
+  return res.json() as T
 }
 
 export async function fetchPortfolioSummary(): Promise<PortfolioSummary> {
@@ -14,7 +14,7 @@ export async function fetchSnapshots(from?: string, to?: string): Promise<Portfo
   const params = new URLSearchParams()
   if (from) params.set('from_dt', from)
   if (to) params.set('to_dt', to)
-  const qs = params.toString() ? `?${params.toString()}` : ''
+  const qs = params.size ? `?${params.toString()}` : ''
   return fetchJSON<PortfolioSnapshot[]>(`/api/history/snapshots${qs}`)
 }
 

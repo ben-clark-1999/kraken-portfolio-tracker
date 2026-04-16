@@ -13,5 +13,6 @@ export function formatAUD(value: number): string {
 }
 
 export function formatPct(value: number): string {
+  if (!Number.isFinite(value)) return '—'
   return `${value.toFixed(2)}%`
 }
