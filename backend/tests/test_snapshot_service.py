@@ -1,5 +1,5 @@
 from datetime import timedelta
-from backend.services.snapshot_service import save_snapshot, get_snapshots, should_snapshot
+from backend.services.snapshot_service import save_snapshot, get_snapshots
 from backend.models.portfolio import PortfolioSummary, AssetPosition
 from backend.utils.timezone import now_aest, to_iso
 
@@ -29,15 +29,6 @@ def test_save_and_retrieve_snapshot(clean_test_tables):
     assert len(snapshots) == 1
     assert snapshots[0].total_value_aud == 5000.00
     assert "ETH" in snapshots[0].assets
-
-
-def test_should_snapshot_true_when_no_recent_snapshot(clean_test_tables):
-    assert should_snapshot(schema="test") is True
-
-
-def test_should_snapshot_false_when_recent_snapshot_exists(clean_test_tables):
-    save_snapshot(_make_summary(), schema="test")
-    assert should_snapshot(schema="test") is False
 
 
 def test_get_snapshots_filters_by_time_range(clean_test_tables):

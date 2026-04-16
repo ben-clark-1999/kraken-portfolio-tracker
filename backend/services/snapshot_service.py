@@ -1,8 +1,6 @@
-from datetime import timedelta
 from backend.db.supabase_client import get_supabase
 from backend.models.portfolio import PortfolioSummary
 from backend.models.snapshot import PortfolioSnapshot, SnapshotAsset
-from backend.utils.timezone import now_aest, to_iso
 
 
 def save_snapshot(summary: PortfolioSummary, schema: str = "public") -> None:
@@ -46,17 +44,3 @@ def get_snapshots(
         )
         for row in result.data
     ]
-
-
-def should_snapshot(schema: str = "public") -> bool:
-    """Returns True if no snapshot exists in the last hour."""
-    db = get_supabase()
-    one_hour_ago = to_iso(now_aest() - timedelta(hours=1))
-    result = (
-        db.schema(schema).table("portfolio_snapshots")
-        .select("id")
-        .gte("captured_at", one_hour_ago)
-        .limit(1)
-        .execute()
-    )
-    return len(result.data) == 0
