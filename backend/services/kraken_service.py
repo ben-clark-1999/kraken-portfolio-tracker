@@ -7,11 +7,20 @@ class KrakenServiceError(Exception):
     """Raised when a Kraken API call fails."""
 
 
-# Mapping from Kraken balance key → display asset name → AUD pair
-ASSET_MAP: dict[str, dict[str, str]] = {
-    "XETH": {"name": "ETH", "pair": "XETHZAUD"},
-    "SOL":  {"name": "SOL", "pair": "SOLAUD"},
-    "ADA":  {"name": "ADA", "pair": "ADAAUD"},
+# Mapping from display asset name → list of Kraken balance keys (spot + staked/bonded variants) + AUD pair
+ASSET_MAP: dict[str, dict] = {
+    "ETH": {
+        "keys": ["XETH", "ETH", "ETH.B", "ETH.S", "ETH2", "ETH2.S", "ETH.F"],
+        "pair": "XETHZAUD",
+    },
+    "SOL": {
+        "keys": ["SOL", "SOL.S", "SOL.F", "SOL03.S"],
+        "pair": "SOLAUD",
+    },
+    "ADA": {
+        "keys": ["ADA", "ADA.S", "ADA.F"],
+        "pair": "ADAAUD",
+    },
 }
 
 # Mapping from Kraken pair name → display asset name (for trade history)
@@ -41,19 +50,22 @@ def _get_market() -> Market:
 
 def get_balances() -> dict[str, Decimal]:
     """
-    Returns current balances for tracked assets.
-    Result: {"ETH": Decimal("1.5"), "SOL": Decimal("10.0"), "ADA": Decimal("1000.0")}
+    Returns current balances for tracked assets, summing across spot + staked/bonded variants.
+    Result: {"ETH": Decimal("0.9445"), "SOL": Decimal("9.03"), "ADA": Decimal("692.77")}
     """
     try:
         raw = _get_user().get_account_balance()
     except Exception as e:
         raise KrakenServiceError(f"get_balances failed: {e}") from e
+
     result: dict[str, Decimal] = {}
-    for kraken_key, info in ASSET_MAP.items():
-        raw_balance = raw.get(kraken_key, "0")
-        balance = Decimal(str(raw_balance))
-        if balance > 0:
-            result[info["name"]] = balance
+    for asset_name, info in ASSET_MAP.items():
+        total = Decimal("0")
+        for kraken_key in info["keys"]:
+            raw_balance = raw.get(kraken_key, "0")
+            total += Decimal(str(raw_balance))
+        if total > 0:
+            result[asset_name] = total
     return result
 
 
@@ -62,8 +74,7 @@ def get_ticker_prices(assets: list[str]) -> dict[str, Decimal]:
     Returns live AUD prices for given asset names (e.g. ["ETH", "SOL", "ADA"]).
     Result: {"ETH": Decimal("3000.00"), "SOL": Decimal("220.50"), ...}
     """
-    # Build reverse lookup: asset name → pair
-    name_to_pair = {info["name"]: info["pair"] for info in ASSET_MAP.values()}
+    name_to_pair = {name: info["pair"] for name, info in ASSET_MAP.items()}
     pairs = [name_to_pair[a] for a in assets if a in name_to_pair]
     if not pairs:
         return {}
@@ -75,7 +86,7 @@ def get_ticker_prices(assets: list[str]) -> dict[str, Decimal]:
         raise KrakenServiceError(f"get_ticker_prices failed: {e}") from e
 
     result: dict[str, Decimal] = {}
-    pair_to_name = {info["pair"]: info["name"] for info in ASSET_MAP.values()}
+    pair_to_name = {info["pair"]: name for name, info in ASSET_MAP.items()}
     for pair, data in raw.items():
         asset_name = pair_to_name.get(pair)
         if asset_name:
