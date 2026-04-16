@@ -1,5 +1,6 @@
 from decimal import Decimal
 from backend.db.supabase_client import get_supabase
+from backend.models.trade import Lot
 from backend.utils.timezone import unix_to_aest, to_iso
 
 
@@ -62,8 +63,12 @@ def record_sync(last_trade_id: str | None, status: str, error_message: str | Non
     }).execute()
 
 
-def get_all_lots() -> list[dict]:
-    """Returns all lots from Supabase ordered oldest first."""
+def get_all_lots() -> list[Lot]:
+    """Returns all lots from Supabase ordered oldest first, parsed into Lot models.
+
+    Supabase returns numeric columns as strings; pydantic coerces them into the
+    Lot model's float fields automatically.
+    """
     db = get_supabase()
     result = db.table("lots").select("*").order("acquired_at", desc=False).execute()
-    return result.data
+    return [Lot(**row) for row in result.data]
