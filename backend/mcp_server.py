@@ -117,6 +117,22 @@ async def get_unrealised_cgt() -> str:
 
 
 @mcp.tool()
+async def get_buy_and_hold_comparison(asset: str) -> str:
+    """Compare actual DCA portfolio outcome against hypothetical all-in on one asset.
+
+    For each historical DCA buy, calculates what that AUD amount would have
+    bought of the target asset at the same date using OHLC close prices.
+    Compares the hypothetical total against actual portfolio value (from lots
+    only, excluding staking rewards).
+
+    Args:
+        asset: Target asset for the hypothetical comparison (e.g. "ETH", "SOL").
+    """
+    result = await asyncio.to_thread(portfolio_service.get_buy_and_hold_comparison, asset)
+    return json.dumps(result.model_dump(), default=str)
+
+
+@mcp.tool()
 async def sync_trades() -> str:
     """Pull latest trades from Kraken and sync to the database. Returns the number of new trades imported."""
     def _sync():

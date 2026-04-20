@@ -50,3 +50,29 @@ class CGTSummary(BaseModel):
 class UnrealisedCGT(BaseModel):
     lots: list[CGTLot]
     summary: CGTSummary
+
+
+class BuyBreakdown(BaseModel):
+    date: str
+    aud_spent: float
+    actual_asset_bought: str
+    actual_qty: float
+    hypothetical_qty_of_target: float
+
+
+class SkippedBuy(BaseModel):
+    date: str
+    aud_spent: float
+    actual_asset_bought: str
+    reason: str
+
+
+class BuyAndHoldComparison(BaseModel):
+    asset: str
+    total_aud_invested: float
+    actual_portfolio_value: float
+    hypothetical_value_if_all_in_asset: float
+    difference_aud: float
+    difference_pct: float
+    per_buy_breakdown: list[BuyBreakdown]
+    skipped_buys: list[SkippedBuy]

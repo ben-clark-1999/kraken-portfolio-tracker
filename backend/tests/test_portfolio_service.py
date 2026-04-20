@@ -6,6 +6,7 @@ from backend.services.portfolio_service import (
     get_dca_history,
     calculate_next_dca_date,
     get_balance_change,
+    get_buy_and_hold_comparison,
     get_dca_analysis,
     get_unrealised_cgt,
 )
@@ -429,3 +430,61 @@ def test_cgt_summary_and_sort(mock_sync, mock_kraken, mock_now):
 
     # ADA is not within 30 days of eligibility (still ~346 days away)
     assert result.summary.lots_within_30_days_of_eligibility == 0
+
+
+# --- get_buy_and_hold_comparison tests ---
+
+
+@patch("backend.services.portfolio_service.get_ohlc_cached")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_buy_and_hold_basic(mock_sync, mock_kraken, mock_ohlc):
+    """Two ETH buys on different days vs hypothetical all-in-ETH."""
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 0.5, 3000.00, "2025-10-01T10:00:00+10:00", "t1"),
+        _lot_on_date("SOL", 10.0, 200.00, "2025-10-15T10:00:00+10:00", "t2"),
+    ]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("0.5"), "SOL": Decimal("10.0")}
+    mock_kraken.get_ticker_prices.return_value = {
+        "ETH": Decimal("4000.00"), "SOL": Decimal("250.00"),
+    }
+    mock_kraken.ASSET_MAP = {"ETH": {"keys": ["XETH"], "pair": "ETHAUD"}}
+    mock_ohlc.return_value = {
+        "2025-10-01": 3000.0,
+        "2025-10-15": 3500.0,
+    }
+
+    result = get_buy_and_hold_comparison("ETH")
+
+    # actual: ETH lot 0.5*4000 + SOL lot 10*250 = 2000 + 2500 = 4500
+    assert result.actual_portfolio_value == 4500.00
+    # total invested: 0.5*3000 + 10*200 = 1500 + 2000 = 3500
+    assert result.total_aud_invested == 3500.00
+    # hypothetical: 1500/3000 + 2000/3500 = 0.5 + 0.5714... ETH * 4000
+    assert len(result.per_buy_breakdown) == 2
+    assert result.skipped_buys == []
+    assert result.hypothetical_value_if_all_in_asset > 0
+
+
+@patch("backend.services.portfolio_service.get_ohlc_cached")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_buy_and_hold_skipped_buys(mock_sync, mock_kraken, mock_ohlc):
+    """Buys on dates without OHLC data get put in skipped_buys."""
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 0.5, 3000.00, "2025-10-01T10:00:00+10:00", "t1"),
+        _lot_on_date("ETH", 0.5, 3200.00, "2025-10-08T10:00:00+10:00", "t2"),
+    ]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("1.0")}
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+    mock_kraken.ASSET_MAP = {"ETH": {"keys": ["XETH"], "pair": "ETHAUD"}}
+    mock_ohlc.return_value = {
+        "2025-10-01": 3000.0,
+        # 2025-10-08 missing
+    }
+
+    result = get_buy_and_hold_comparison("ETH")
+
+    assert len(result.per_buy_breakdown) == 1
+    assert len(result.skipped_buys) == 1
+    assert result.skipped_buys[0].date == "2025-10-08"

@@ -9,12 +9,16 @@ from dateutil.relativedelta import relativedelta
 
 from backend.models.analytics import (
     BalanceChange,
+    BuyAndHoldComparison,
+    BuyBreakdown,
     CGTLot,
     CGTSummary,
     DCAAnalysis,
     DCAAnalysisAsset,
+    SkippedBuy,
     UnrealisedCGT,
 )
+from backend.db.supabase_client import get_supabase
 from backend.services import kraken_service
 from backend.services import snapshot_service
 from backend.services import sync_service
@@ -289,4 +293,90 @@ def get_unrealised_cgt() -> UnrealisedCGT:
             total_ineligible_gain_aud=round(total_ineligible, 2),
             lots_within_30_days_of_eligibility=within_30,
         ),
+    )
+
+
+def get_ohlc_cached(pair: str) -> dict[str, float]:
+    """Get daily OHLC close prices, caching in Supabase to avoid redundant Kraken calls."""
+    db = get_supabase()
+    cached = db.table("ohlc_cache").select("date, close_price").eq("pair", pair).execute()
+
+    if cached.data:
+        return {row["date"]: float(row["close_price"]) for row in cached.data}
+
+    prices = kraken_service.get_ohlc_daily(pair)
+    if prices:
+        rows = [{"pair": pair, "date": d, "close_price": p} for d, p in prices.items()]
+        db.table("ohlc_cache").upsert(rows, on_conflict="pair,date").execute()
+
+    return prices
+
+
+def get_buy_and_hold_comparison(asset: str) -> BuyAndHoldComparison:
+    """Compare actual DCA portfolio outcome against all-in on a single asset.
+
+    actual_portfolio_value = sum(lot.remaining_quantity * current_price) across
+    all lots, excluding staking rewards. The buy-and-hold counterfactual uses
+    the same AUD amounts on the same dates.
+    """
+    lots = sync_service.get_all_lots()
+    balances = kraken_service.get_balances()
+    prices = kraken_service.get_ticker_prices(list(balances.keys()))
+
+    target_pair = kraken_service.ASSET_MAP.get(asset, {}).get("pair")
+    if not target_pair:
+        raise ValueError(f"Unknown asset: {asset}")
+
+    target_ohlc = get_ohlc_cached(target_pair)
+    target_current_price = prices.get(asset, Decimal("0"))
+
+    actual_value = 0.0
+    for lot in lots:
+        price = prices.get(lot.asset, Decimal("0"))
+        actual_value += float(Decimal(str(lot.remaining_quantity)) * price)
+
+    total_invested = 0.0
+    hypothetical_qty = 0.0
+    breakdowns: list[BuyBreakdown] = []
+    skipped: list[SkippedBuy] = []
+
+    for lot in sorted(lots, key=lambda l: l.acquired_at):
+        buy_date = datetime.fromisoformat(lot.acquired_at).strftime("%Y-%m-%d")
+        aud_spent = lot.cost_aud
+        total_invested += aud_spent
+
+        target_price_on_date = target_ohlc.get(buy_date)
+        if target_price_on_date is None or target_price_on_date <= 0:
+            skipped.append(SkippedBuy(
+                date=buy_date,
+                aud_spent=round(aud_spent, 2),
+                actual_asset_bought=lot.asset,
+                reason=f"No OHLC data for {asset} on {buy_date}",
+            ))
+            continue
+
+        hyp_qty = aud_spent / target_price_on_date
+        hypothetical_qty += hyp_qty
+
+        breakdowns.append(BuyBreakdown(
+            date=buy_date,
+            aud_spent=round(aud_spent, 2),
+            actual_asset_bought=lot.asset,
+            actual_qty=lot.quantity,
+            hypothetical_qty_of_target=round(hyp_qty, 8),
+        ))
+
+    hypothetical_value = float(Decimal(str(hypothetical_qty)) * target_current_price)
+    diff = hypothetical_value - actual_value
+    diff_pct = (diff / actual_value * 100) if actual_value else 0
+
+    return BuyAndHoldComparison(
+        asset=asset,
+        total_aud_invested=round(total_invested, 2),
+        actual_portfolio_value=round(actual_value, 2),
+        hypothetical_value_if_all_in_asset=round(hypothetical_value, 2),
+        difference_aud=round(diff, 2),
+        difference_pct=round(diff_pct, 2),
+        per_buy_breakdown=breakdowns,
+        skipped_buys=skipped,
     )

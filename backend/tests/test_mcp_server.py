@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from backend.models.analytics import (
     BalanceChange,
+    BuyAndHoldComparison,
     CGTLot,
     CGTSummary,
     DCAAnalysis,
@@ -280,6 +281,30 @@ async def test_get_unrealised_cgt_tool(mock_portfolio):
     assert len(data["lots"]) == 1
     assert data["lots"][0]["cgt_discount_eligible"] is True
     assert data["summary"]["total_eligible_gain_aud"] == 1000.00
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.portfolio_service")
+async def test_get_buy_and_hold_comparison_tool(mock_portfolio):
+    mock_portfolio.get_buy_and_hold_comparison.return_value = BuyAndHoldComparison(
+        asset="ETH",
+        total_aud_invested=3500.00,
+        actual_portfolio_value=4500.00,
+        hypothetical_value_if_all_in_asset=4800.00,
+        difference_aud=300.00,
+        difference_pct=6.67,
+        per_buy_breakdown=[],
+        skipped_buys=[],
+    )
+
+    from backend.mcp_server import get_buy_and_hold_comparison
+
+    result = await get_buy_and_hold_comparison(asset="ETH")
+    data = json.loads(result)
+
+    mock_portfolio.get_buy_and_hold_comparison.assert_called_once_with("ETH")
+    assert data["asset"] == "ETH"
+    assert data["difference_aud"] == 300.00
 
 
 @pytest.mark.asyncio
