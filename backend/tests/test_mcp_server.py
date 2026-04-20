@@ -4,6 +4,12 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from backend.models.portfolio import PortfolioSummary, AssetPosition
+from backend.models.trade import Lot, DCAEntry
+from backend.models.snapshot import PortfolioSnapshot, SnapshotAsset
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+AEST = ZoneInfo("Australia/Sydney")
 
 
 def _sample_summary() -> PortfolioSummary:
@@ -90,3 +96,88 @@ async def test_get_prices_tool_specific_assets(mock_kraken):
 
     mock_kraken.get_ticker_prices.assert_called_once_with(["ETH"])
     assert data["ETH"] == "4000.00"
+
+
+def _sample_lot(trade_id: str = "t1") -> Lot:
+    acquired_at = (datetime.now(tz=AEST) - timedelta(days=30)).isoformat()
+    return Lot(
+        id="test-id",
+        asset="ETH",
+        acquired_at=acquired_at,
+        quantity=1.0,
+        cost_aud=3000.00,
+        cost_per_unit_aud=3000.00,
+        kraken_trade_id=trade_id,
+        remaining_quantity=1.0,
+    )
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.sync_service")
+@patch("backend.mcp_server.kraken_service")
+@patch("backend.mcp_server.portfolio_service")
+async def test_get_dca_history_tool(mock_portfolio, mock_kraken, mock_sync):
+    mock_sync.get_all_lots.return_value = [_sample_lot()]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("1.0")}
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+    mock_portfolio.get_dca_history.return_value = [
+        DCAEntry(
+            lot_id="test-id",
+            asset="ETH",
+            acquired_at="2026-03-18T10:00:00+11:00",
+            quantity=1.0,
+            cost_aud=3000.00,
+            cost_per_unit_aud=3000.00,
+            current_price_aud=4000.00,
+            current_value_aud=4000.00,
+            unrealised_pnl_aud=1000.00,
+        )
+    ]
+
+    from backend.mcp_server import get_dca_history
+
+    result = await get_dca_history()
+    data = json.loads(result)
+
+    assert len(data) == 1
+    assert data[0]["asset"] == "ETH"
+    assert data[0]["unrealised_pnl_aud"] == 1000.00
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.snapshot_service")
+async def test_get_snapshots_tool_default_range(mock_snapshot):
+    mock_snapshot.get_snapshots.return_value = [
+        PortfolioSnapshot(
+            id="snap-1",
+            captured_at="2026-04-16T10:00:00+10:00",
+            total_value_aud=4000.00,
+            assets={"ETH": SnapshotAsset(quantity=1.0, value_aud=4000.00, price_aud=4000.00)},
+        )
+    ]
+
+    from backend.mcp_server import get_snapshots
+
+    result = await get_snapshots()
+    data = json.loads(result)
+
+    assert len(data) == 1
+    assert data[0]["total_value_aud"] == 4000.00
+    call_args = mock_snapshot.get_snapshots.call_args
+    assert call_args[1]["from_dt"] is not None
+    assert call_args[1]["to_dt"] is None
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.snapshot_service")
+async def test_get_snapshots_tool_all_range(mock_snapshot):
+    mock_snapshot.get_snapshots.return_value = []
+
+    from backend.mcp_server import get_snapshots
+
+    result = await get_snapshots(time_range="all")
+    data = json.loads(result)
+
+    assert data == []
+    call_args = mock_snapshot.get_snapshots.call_args
+    assert call_args[1]["from_dt"] is None
