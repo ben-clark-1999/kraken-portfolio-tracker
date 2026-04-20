@@ -5,7 +5,7 @@ from backend.models.portfolio import AssetPosition, PortfolioSummary
 from backend.models.trade import Lot, DCAEntry
 from backend.utils.fifo import calculate_cost_basis, LotInput
 from backend.utils.timezone import to_iso, now_aest
-from backend.models.analytics import BalanceChange
+from backend.models.analytics import BalanceChange, DCAAnalysis, DCAAnalysisAsset
 from backend.services import kraken_service
 from backend.services import snapshot_service
 from backend.services import sync_service
@@ -165,4 +165,59 @@ def get_balance_change(timeframe: str) -> BalanceChange:
         start_date=start_snap.captured_at,
         end_date=end_date,
         note=note,
+    )
+
+
+def get_dca_analysis() -> DCAAnalysis:
+    """Analyse DCA cadence and cost basis across all lots."""
+    lots = sync_service.get_all_lots()
+
+    from collections import defaultdict
+    grouped: dict[str, list[Lot]] = defaultdict(list)
+    for lot in lots:
+        grouped[lot.asset].append(lot)
+
+    asset_results: list[DCAAnalysisAsset] = []
+    all_gaps: list[float] = []
+    total_invested = 0.0
+
+    for asset, asset_lots in sorted(grouped.items()):
+        asset_lots.sort(key=lambda l: l.acquired_at)
+        invested = sum(l.cost_aud for l in asset_lots)
+        total_qty = sum(l.quantity for l in asset_lots)
+        avg_cost = invested / total_qty if total_qty else 0
+
+        dates = [datetime.fromisoformat(l.acquired_at).date() for l in asset_lots]
+        last_buy = dates[-1]
+        next_expected = last_buy + timedelta(days=7)
+
+        if len(dates) >= 2:
+            gaps = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
+            avg_gap = sum(gaps) / len(gaps)
+            cadence_dev = avg_gap - 7.0
+            all_gaps.extend(gaps)
+        else:
+            avg_gap = None
+            cadence_dev = None
+
+        total_invested += invested
+        asset_results.append(DCAAnalysisAsset(
+            asset=asset,
+            total_invested_aud=round(invested, 2),
+            average_cost_basis_aud=round(avg_cost, 2),
+            lot_count=len(asset_lots),
+            average_days_between_buys=round(avg_gap, 1) if avg_gap is not None else None,
+            last_buy_date=last_buy.isoformat(),
+            next_expected_buy_date=next_expected.isoformat(),
+            cadence_deviation_days=round(cadence_dev, 1) if cadence_dev is not None else None,
+        ))
+
+    overall_avg = sum(all_gaps) / len(all_gaps) if all_gaps else None
+
+    return DCAAnalysis(
+        assets=asset_results,
+        overall={
+            "total_invested_aud": round(total_invested, 2),
+            "average_cadence_days": round(overall_avg, 1) if overall_avg is not None else None,
+        },
     )

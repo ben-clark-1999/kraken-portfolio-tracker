@@ -3,7 +3,7 @@ import pytest
 from decimal import Decimal
 from unittest.mock import patch
 
-from backend.models.analytics import BalanceChange
+from backend.models.analytics import BalanceChange, DCAAnalysis, DCAAnalysisAsset
 from backend.models.portfolio import PortfolioSummary, AssetPosition
 from backend.models.trade import Lot, DCAEntry
 from backend.models.snapshot import PortfolioSnapshot, SnapshotAsset
@@ -207,6 +207,36 @@ async def test_get_balance_change_tool(mock_portfolio):
     assert data["timeframe"] == "1M"
     assert data["change_aud"] == 1000.00
     assert data["change_pct"] == 25.00
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.portfolio_service")
+async def test_get_dca_analysis_tool(mock_portfolio):
+    mock_portfolio.get_dca_analysis.return_value = DCAAnalysis(
+        assets=[
+            DCAAnalysisAsset(
+                asset="ETH",
+                total_invested_aud=4500.00,
+                average_cost_basis_aud=3000.00,
+                lot_count=3,
+                average_days_between_buys=7.0,
+                last_buy_date="2026-04-13",
+                next_expected_buy_date="2026-04-20",
+                cadence_deviation_days=0.0,
+            )
+        ],
+        overall={"total_invested_aud": 4500.00, "average_cadence_days": 7.0},
+    )
+
+    from backend.mcp_server import get_dca_analysis
+
+    result = await get_dca_analysis()
+    data = json.loads(result)
+
+    mock_portfolio.get_dca_analysis.assert_called_once()
+    assert len(data["assets"]) == 1
+    assert data["assets"][0]["asset"] == "ETH"
+    assert data["overall"]["total_invested_aud"] == 4500.00
 
 
 @pytest.mark.asyncio

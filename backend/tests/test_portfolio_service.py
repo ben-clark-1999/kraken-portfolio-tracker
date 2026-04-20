@@ -6,6 +6,7 @@ from backend.services.portfolio_service import (
     get_dca_history,
     calculate_next_dca_date,
     get_balance_change,
+    get_dca_analysis,
 )
 from backend.models.portfolio import PortfolioSummary
 from backend.models.snapshot import PortfolioSnapshot, SnapshotAsset
@@ -204,3 +205,59 @@ def test_get_balance_change_negative(mock_build, mock_snap):
 
     assert result.change_aud == -2000.00
     assert result.change_pct == -40.00
+
+
+# --- get_dca_analysis tests ---
+
+
+@patch("backend.services.portfolio_service.sync_service")
+def test_get_dca_analysis_multi_asset(mock_sync):
+    mock_sync.get_all_lots.return_value = [
+        _lot("ETH", 0.5, 3000.00, 28, "t1"),
+        _lot("ETH", 0.5, 3200.00, 21, "t2"),
+        _lot("ETH", 0.5, 2800.00, 14, "t3"),
+        _lot("SOL", 10.0, 200.00, 14, "t4"),
+    ]
+
+    result = get_dca_analysis()
+
+    assert len(result.assets) == 2
+    eth = next(a for a in result.assets if a.asset == "ETH")
+    sol = next(a for a in result.assets if a.asset == "SOL")
+
+    assert eth.lot_count == 3
+    assert eth.total_invested_aud == 0.5 * 3000 + 0.5 * 3200 + 0.5 * 2800
+    assert eth.average_cost_basis_aud == eth.total_invested_aud / 1.5
+    assert eth.average_days_between_buys == 7.0  # 28→21→14 = gaps of 7 each
+    assert eth.cadence_deviation_days == 0.0  # exactly on weekly target
+
+    assert sol.lot_count == 1
+    assert sol.average_days_between_buys is None
+    assert sol.cadence_deviation_days is None
+
+    assert result.overall["total_invested_aud"] == eth.total_invested_aud + sol.total_invested_aud
+
+
+@patch("backend.services.portfolio_service.sync_service")
+def test_get_dca_analysis_slow_cadence(mock_sync):
+    mock_sync.get_all_lots.return_value = [
+        _lot("ETH", 0.5, 3000.00, 30, "t1"),
+        _lot("ETH", 0.5, 3200.00, 20, "t2"),  # 10-day gap
+    ]
+
+    result = get_dca_analysis()
+    eth = result.assets[0]
+
+    assert eth.average_days_between_buys == 10.0
+    assert eth.cadence_deviation_days == 3.0  # 10 - 7 = 3 days slower
+
+
+@patch("backend.services.portfolio_service.sync_service")
+def test_get_dca_analysis_empty_lots(mock_sync):
+    mock_sync.get_all_lots.return_value = []
+
+    result = get_dca_analysis()
+
+    assert result.assets == []
+    assert result.overall["total_invested_aud"] == 0
+    assert result.overall["average_cadence_days"] is None

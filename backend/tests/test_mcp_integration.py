@@ -25,6 +25,7 @@ async def test_mcp_server_lists_tools():
         "get_snapshots",
         "sync_trades",
         "get_balance_change",
+        "get_dca_analysis",
     }
 
 

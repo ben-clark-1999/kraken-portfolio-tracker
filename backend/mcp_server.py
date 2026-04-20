@@ -92,6 +92,18 @@ async def get_balance_change(timeframe: str) -> str:
 
 
 @mcp.tool()
+async def get_dca_analysis() -> str:
+    """Analyse DCA buying cadence and cost basis across all assets.
+
+    Returns per-asset breakdown of total invested, average cost basis, lot
+    count, average days between buys, cadence deviation from weekly target,
+    and an overall summary.
+    """
+    result = await asyncio.to_thread(portfolio_service.get_dca_analysis)
+    return json.dumps(result.model_dump(), default=str)
+
+
+@mcp.tool()
 async def sync_trades() -> str:
     """Pull latest trades from Kraken and sync to the database. Returns the number of new trades imported."""
     def _sync():
