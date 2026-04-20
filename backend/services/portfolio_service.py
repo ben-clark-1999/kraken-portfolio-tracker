@@ -5,7 +5,16 @@ from backend.models.portfolio import AssetPosition, PortfolioSummary
 from backend.models.trade import Lot, DCAEntry
 from backend.utils.fifo import calculate_cost_basis, LotInput
 from backend.utils.timezone import to_iso, now_aest
-from backend.models.analytics import BalanceChange, DCAAnalysis, DCAAnalysisAsset
+from dateutil.relativedelta import relativedelta
+
+from backend.models.analytics import (
+    BalanceChange,
+    CGTLot,
+    CGTSummary,
+    DCAAnalysis,
+    DCAAnalysisAsset,
+    UnrealisedCGT,
+)
 from backend.services import kraken_service
 from backend.services import snapshot_service
 from backend.services import sync_service
@@ -220,4 +229,64 @@ def get_dca_analysis() -> DCAAnalysis:
             "total_invested_aud": round(total_invested, 2),
             "average_cadence_days": round(overall_avg, 1) if overall_avg is not None else None,
         },
+    )
+
+
+def get_unrealised_cgt() -> UnrealisedCGT:
+    """Compute unrealised CGT position for each lot.
+
+    Uses the ATO rule: CGT discount applies when asset is held for *more than*
+    12 months. Earliest eligible disposal date = acquired_date + 1 year + 1 day
+    (via dateutil.relativedelta to handle leap years correctly).
+    """
+    lots = sync_service.get_all_lots()
+    balances = kraken_service.get_balances()
+    prices = kraken_service.get_ticker_prices(list(balances.keys()))
+    today = now_aest().date()
+
+    cgt_lots: list[CGTLot] = []
+
+    for lot in lots:
+        if lot.remaining_quantity <= 0:
+            continue
+
+        acquired_date = datetime.fromisoformat(lot.acquired_at).date()
+        days_held = (today - acquired_date).days
+
+        # ATO: "more than 12 months" → acquired + 1 year + 1 day
+        earliest_eligible = acquired_date + relativedelta(years=1, days=1)
+        eligible = today >= earliest_eligible
+        days_until = max(0, (earliest_eligible - today).days)
+
+        price = prices.get(lot.asset, Decimal("0"))
+        cost_basis = lot.remaining_quantity * lot.cost_per_unit_aud
+        current_value = float(Decimal(str(lot.remaining_quantity)) * price)
+        gain = current_value - cost_basis
+
+        cgt_lots.append(CGTLot(
+            lot_id=lot.id,
+            asset=lot.asset,
+            acquired_at=lot.acquired_at,
+            days_held=days_held,
+            quantity=lot.remaining_quantity,
+            cost_basis_aud=round(cost_basis, 2),
+            current_value_aud=round(current_value, 2),
+            unrealised_gain_aud=round(gain, 2),
+            cgt_discount_eligible=eligible,
+            days_until_discount_eligible=days_until,
+        ))
+
+    cgt_lots.sort(key=lambda l: l.days_until_discount_eligible)
+
+    total_eligible = sum(l.unrealised_gain_aud for l in cgt_lots if l.cgt_discount_eligible)
+    total_ineligible = sum(l.unrealised_gain_aud for l in cgt_lots if not l.cgt_discount_eligible)
+    within_30 = sum(1 for l in cgt_lots if 0 < l.days_until_discount_eligible <= 30)
+
+    return UnrealisedCGT(
+        lots=cgt_lots,
+        summary=CGTSummary(
+            total_eligible_gain_aud=round(total_eligible, 2),
+            total_ineligible_gain_aud=round(total_ineligible, 2),
+            lots_within_30_days_of_eligibility=within_30,
+        ),
     )

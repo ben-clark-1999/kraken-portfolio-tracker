@@ -104,6 +104,19 @@ async def get_dca_analysis() -> str:
 
 
 @mcp.tool()
+async def get_unrealised_cgt() -> str:
+    """Compute unrealised capital gains tax position for each lot.
+
+    Per-lot breakdown with days held, cost basis, current value, unrealised
+    gain, CGT discount eligibility (ATO >12 months rule), and days until
+    discount eligible. Summary includes total eligible/ineligible gains and
+    count of lots within 30 days of eligibility.
+    """
+    result = await asyncio.to_thread(portfolio_service.get_unrealised_cgt)
+    return json.dumps(result.model_dump(), default=str)
+
+
+@mcp.tool()
 async def sync_trades() -> str:
     """Pull latest trades from Kraken and sync to the database. Returns the number of new trades imported."""
     def _sync():

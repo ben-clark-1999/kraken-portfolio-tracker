@@ -3,7 +3,14 @@ import pytest
 from decimal import Decimal
 from unittest.mock import patch
 
-from backend.models.analytics import BalanceChange, DCAAnalysis, DCAAnalysisAsset
+from backend.models.analytics import (
+    BalanceChange,
+    CGTLot,
+    CGTSummary,
+    DCAAnalysis,
+    DCAAnalysisAsset,
+    UnrealisedCGT,
+)
 from backend.models.portfolio import PortfolioSummary, AssetPosition
 from backend.models.trade import Lot, DCAEntry
 from backend.models.snapshot import PortfolioSnapshot, SnapshotAsset
@@ -237,6 +244,42 @@ async def test_get_dca_analysis_tool(mock_portfolio):
     assert len(data["assets"]) == 1
     assert data["assets"][0]["asset"] == "ETH"
     assert data["overall"]["total_invested_aud"] == 4500.00
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.portfolio_service")
+async def test_get_unrealised_cgt_tool(mock_portfolio):
+    mock_portfolio.get_unrealised_cgt.return_value = UnrealisedCGT(
+        lots=[
+            CGTLot(
+                lot_id="lot-1",
+                asset="ETH",
+                acquired_at="2025-04-15T10:00:00+10:00",
+                days_held=370,
+                quantity=1.0,
+                cost_basis_aud=3000.00,
+                current_value_aud=4000.00,
+                unrealised_gain_aud=1000.00,
+                cgt_discount_eligible=True,
+                days_until_discount_eligible=0,
+            )
+        ],
+        summary=CGTSummary(
+            total_eligible_gain_aud=1000.00,
+            total_ineligible_gain_aud=0,
+            lots_within_30_days_of_eligibility=0,
+        ),
+    )
+
+    from backend.mcp_server import get_unrealised_cgt
+
+    result = await get_unrealised_cgt()
+    data = json.loads(result)
+
+    mock_portfolio.get_unrealised_cgt.assert_called_once()
+    assert len(data["lots"]) == 1
+    assert data["lots"][0]["cgt_discount_eligible"] is True
+    assert data["summary"]["total_eligible_gain_aud"] == 1000.00
 
 
 @pytest.mark.asyncio

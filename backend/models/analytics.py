@@ -26,3 +26,27 @@ class DCAAnalysisAsset(BaseModel):
 class DCAAnalysis(BaseModel):
     assets: list[DCAAnalysisAsset]
     overall: dict  # total_invested_aud, average_cadence_days
+
+
+class CGTLot(BaseModel):
+    lot_id: str
+    asset: str
+    acquired_at: str
+    days_held: int
+    quantity: float
+    cost_basis_aud: float
+    current_value_aud: float
+    unrealised_gain_aud: float
+    cgt_discount_eligible: bool
+    days_until_discount_eligible: int
+
+
+class CGTSummary(BaseModel):
+    total_eligible_gain_aud: float
+    total_ineligible_gain_aud: float
+    lots_within_30_days_of_eligibility: int
+
+
+class UnrealisedCGT(BaseModel):
+    lots: list[CGTLot]
+    summary: CGTSummary

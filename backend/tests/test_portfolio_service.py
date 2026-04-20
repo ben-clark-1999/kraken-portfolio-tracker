@@ -7,6 +7,7 @@ from backend.services.portfolio_service import (
     calculate_next_dca_date,
     get_balance_change,
     get_dca_analysis,
+    get_unrealised_cgt,
 )
 from backend.models.portfolio import PortfolioSummary
 from backend.models.snapshot import PortfolioSnapshot, SnapshotAsset
@@ -261,3 +262,170 @@ def test_get_dca_analysis_empty_lots(mock_sync):
     assert result.assets == []
     assert result.overall["total_invested_aud"] == 0
     assert result.overall["average_cadence_days"] is None
+
+
+# --- get_unrealised_cgt tests ---
+
+
+def _lot_on_date(asset: str, qty: float, cost: float, acquired_at: str, trade_id: str) -> Lot:
+    """Create a lot with a specific acquisition date string."""
+    return Lot(
+        id=f"lot-{trade_id}",
+        asset=asset,
+        acquired_at=acquired_at,
+        quantity=qty,
+        cost_aud=qty * cost,
+        cost_per_unit_aud=cost,
+        kraken_trade_id=trade_id,
+        remaining_quantity=qty,
+    )
+
+
+@patch("backend.services.portfolio_service.now_aest")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_cgt_15apr2025_checked_15apr2026_ineligible(mock_sync, mock_kraken, mock_now):
+    """Buy 15/04/2025, check 15/04/2026 → exactly 12 months, NOT eligible."""
+    mock_now.return_value = datetime(2026, 4, 15, 10, 0, tzinfo=AEST)
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 1.0, 3000.00, "2025-04-15T10:00:00+10:00", "t1"),
+    ]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("1.0")}
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+
+    result = get_unrealised_cgt()
+
+    lot = result.lots[0]
+    assert lot.cgt_discount_eligible is False
+    assert lot.days_until_discount_eligible == 1  # need 16/04/2026
+
+
+@patch("backend.services.portfolio_service.now_aest")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_cgt_15apr2025_checked_16apr2026_eligible(mock_sync, mock_kraken, mock_now):
+    """Buy 15/04/2025, check 16/04/2026 → more than 12 months, eligible."""
+    mock_now.return_value = datetime(2026, 4, 16, 10, 0, tzinfo=AEST)
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 1.0, 3000.00, "2025-04-15T10:00:00+10:00", "t1"),
+    ]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("1.0")}
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+
+    result = get_unrealised_cgt()
+
+    lot = result.lots[0]
+    assert lot.cgt_discount_eligible is True
+    assert lot.days_until_discount_eligible == 0
+
+
+@patch("backend.services.portfolio_service.now_aest")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_cgt_leap_year_29feb(mock_sync, mock_kraken, mock_now):
+    """Buy 29/02/2024 (leap year), check 01/03/2025 → earliest_eligible = 01/03/2025, eligible."""
+    mock_now.return_value = datetime(2025, 3, 1, 10, 0, tzinfo=AEST)
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 1.0, 3000.00, "2024-02-29T10:00:00+11:00", "t1"),
+    ]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("1.0")}
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+
+    result = get_unrealised_cgt()
+
+    lot = result.lots[0]
+    # acquired 29/02/2024 + 1 year = 28/02/2025 (no 29 Feb in 2025) + 1 day = 01/03/2025
+    assert lot.cgt_discount_eligible is True
+    assert lot.days_until_discount_eligible == 0
+
+
+@patch("backend.services.portfolio_service.now_aest")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_cgt_leap_year_29feb_day_before(mock_sync, mock_kraken, mock_now):
+    """Buy 29/02/2024, check 28/02/2025 → NOT eligible (exactly 12 months)."""
+    mock_now.return_value = datetime(2025, 2, 28, 10, 0, tzinfo=AEST)
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 1.0, 3000.00, "2024-02-29T10:00:00+11:00", "t1"),
+    ]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("1.0")}
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+
+    result = get_unrealised_cgt()
+
+    lot = result.lots[0]
+    assert lot.cgt_discount_eligible is False
+    assert lot.days_until_discount_eligible == 1
+
+
+@patch("backend.services.portfolio_service.now_aest")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_cgt_nonleap_28feb(mock_sync, mock_kraken, mock_now):
+    """Buy 28/02/2025 (non-leap), check 01/03/2026 → earliest_eligible = 01/03/2026, eligible."""
+    mock_now.return_value = datetime(2026, 3, 1, 10, 0, tzinfo=AEST)
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 1.0, 3000.00, "2025-02-28T10:00:00+11:00", "t1"),
+    ]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("1.0")}
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+
+    result = get_unrealised_cgt()
+
+    lot = result.lots[0]
+    # acquired 28/02/2025 + 1 year = 28/02/2026 + 1 day = 01/03/2026
+    assert lot.cgt_discount_eligible is True
+    assert lot.days_until_discount_eligible == 0
+
+
+@patch("backend.services.portfolio_service.now_aest")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_cgt_nonleap_28feb_day_before(mock_sync, mock_kraken, mock_now):
+    """Buy 28/02/2025, check 28/02/2026 → NOT eligible."""
+    mock_now.return_value = datetime(2026, 2, 28, 10, 0, tzinfo=AEST)
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 1.0, 3000.00, "2025-02-28T10:00:00+11:00", "t1"),
+    ]
+    mock_kraken.get_balances.return_value = {"ETH": Decimal("1.0")}
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+
+    result = get_unrealised_cgt()
+
+    lot = result.lots[0]
+    assert lot.cgt_discount_eligible is False
+    assert lot.days_until_discount_eligible == 1
+
+
+@patch("backend.services.portfolio_service.now_aest")
+@patch("backend.services.portfolio_service.kraken_service")
+@patch("backend.services.portfolio_service.sync_service")
+def test_cgt_summary_and_sort(mock_sync, mock_kraken, mock_now):
+    """Multiple lots: verify sort order, summary totals, and within-30-days count."""
+    mock_now.return_value = datetime(2026, 4, 20, 10, 0, tzinfo=AEST)
+    mock_sync.get_all_lots.return_value = [
+        _lot_on_date("ETH", 1.0, 3000.00, "2025-04-10T10:00:00+10:00", "t1"),  # ~375 days, eligible
+        _lot_on_date("SOL", 10.0, 200.00, "2025-04-05T10:00:00+10:00", "t2"),   # ~380 days, eligible
+        _lot_on_date("ADA", 500.0, 1.00, "2026-04-01T10:00:00+10:00", "t3"),    # ~19 days, not eligible
+    ]
+    mock_kraken.get_balances.return_value = {
+        "ETH": Decimal("1.0"), "SOL": Decimal("10.0"), "ADA": Decimal("500.0")
+    }
+    mock_kraken.get_ticker_prices.return_value = {
+        "ETH": Decimal("4000.00"), "SOL": Decimal("250.00"), "ADA": Decimal("1.20"),
+    }
+
+    result = get_unrealised_cgt()
+
+    # Sorted by days_until ascending: eligible lots (0) first, then ADA
+    assert result.lots[0].days_until_discount_eligible == 0
+    assert result.lots[1].days_until_discount_eligible == 0
+    assert result.lots[2].days_until_discount_eligible > 0
+
+    # Eligible lots: ETH gained 1000, SOL gained 500
+    assert result.summary.total_eligible_gain_aud == 1000.00 + 500.00
+    # ADA: 500 * 1.20 - 500 * 1.00 = 100
+    assert result.summary.total_ineligible_gain_aud == 100.00
+
+    # ADA is not within 30 days of eligibility (still ~346 days away)
+    assert result.summary.lots_within_30_days_of_eligibility == 0

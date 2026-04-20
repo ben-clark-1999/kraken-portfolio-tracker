@@ -26,6 +26,7 @@ async def test_mcp_server_lists_tools():
         "sync_trades",
         "get_balance_change",
         "get_dca_analysis",
+        "get_unrealised_cgt",
     }
 
 
