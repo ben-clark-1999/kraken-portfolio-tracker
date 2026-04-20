@@ -3,6 +3,7 @@ import pytest
 from decimal import Decimal
 from unittest.mock import patch
 
+from backend.models.analytics import BalanceChange
 from backend.models.portfolio import PortfolioSummary, AssetPosition
 from backend.models.trade import Lot, DCAEntry
 from backend.models.snapshot import PortfolioSnapshot, SnapshotAsset
@@ -181,6 +182,31 @@ async def test_get_snapshots_tool_all_range(mock_snapshot):
     assert data == []
     call_args = mock_snapshot.get_snapshots.call_args
     assert call_args[1]["from_dt"] is None
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.portfolio_service")
+async def test_get_balance_change_tool(mock_portfolio):
+    mock_portfolio.get_balance_change.return_value = BalanceChange(
+        timeframe="1M",
+        start_value_aud=4000.00,
+        end_value_aud=5000.00,
+        change_aud=1000.00,
+        change_pct=25.00,
+        start_date="2026-03-20T10:00:00+10:00",
+        end_date="2026-04-20T10:00:00+10:00",
+        note=None,
+    )
+
+    from backend.mcp_server import get_balance_change
+
+    result = await get_balance_change(timeframe="1M")
+    data = json.loads(result)
+
+    mock_portfolio.get_balance_change.assert_called_once_with("1M")
+    assert data["timeframe"] == "1M"
+    assert data["change_aud"] == 1000.00
+    assert data["change_pct"] == 25.00
 
 
 @pytest.mark.asyncio

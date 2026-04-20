@@ -5,8 +5,27 @@ from backend.models.portfolio import AssetPosition, PortfolioSummary
 from backend.models.trade import Lot, DCAEntry
 from backend.utils.fifo import calculate_cost_basis, LotInput
 from backend.utils.timezone import to_iso, now_aest
+from backend.models.analytics import BalanceChange
 from backend.services import kraken_service
+from backend.services import snapshot_service
 from backend.services import sync_service
+
+
+TIMEFRAME_DAYS = {
+    "1W": 7,
+    "1M": 30,
+    "3M": 90,
+    "6M": 180,
+    "1Y": 365,
+}
+
+
+def _parse_timeframe_days(timeframe: str) -> int:
+    if timeframe not in TIMEFRAME_DAYS:
+        raise ValueError(
+            f"Invalid timeframe: {timeframe}. Valid: {', '.join(TIMEFRAME_DAYS)} or ALL"
+        )
+    return TIMEFRAME_DAYS[timeframe]
 
 
 def calculate_summary(
@@ -94,3 +113,56 @@ def calculate_next_dca_date(lots: list[Lot]) -> date | None:
     latest = max(lots, key=lambda l: l.acquired_at)
     acquired = datetime.fromisoformat(latest.acquired_at)
     return (acquired + timedelta(days=7)).date()
+
+
+def get_balance_change(timeframe: str) -> BalanceChange:
+    """Compare current portfolio value against a historical snapshot.
+
+    Accepts "1W", "1M", "3M", "6M", "1Y", or "ALL".
+    """
+    summary = build_summary()
+    end_value = summary.total_value_aud
+    end_date = summary.captured_at
+
+    note = None
+
+    if timeframe == "ALL":
+        start_snap = snapshot_service.get_oldest_snapshot()
+    else:
+        days = _parse_timeframe_days(timeframe)
+        target_dt = to_iso(now_aest() - timedelta(days=days))
+        start_snap = snapshot_service.get_nearest_snapshot(target_dt)
+        if start_snap is None:
+            start_snap = snapshot_service.get_oldest_snapshot()
+            if start_snap is not None:
+                note = (
+                    f"No snapshot found for {timeframe} lookback. "
+                    f"Using oldest available from {start_snap.captured_at[:10]}."
+                )
+
+    if start_snap is None:
+        return BalanceChange(
+            timeframe=timeframe,
+            start_value_aud=0,
+            end_value_aud=end_value,
+            change_aud=end_value,
+            change_pct=0,
+            start_date="",
+            end_date=end_date,
+            note="No historical snapshots available.",
+        )
+
+    start_value = start_snap.total_value_aud
+    change_aud = end_value - start_value
+    change_pct = (change_aud / start_value * 100) if start_value else 0
+
+    return BalanceChange(
+        timeframe=timeframe,
+        start_value_aud=start_value,
+        end_value_aud=round(end_value, 2),
+        change_aud=round(change_aud, 2),
+        change_pct=round(change_pct, 2),
+        start_date=start_snap.captured_at,
+        end_date=end_date,
+        note=note,
+    )

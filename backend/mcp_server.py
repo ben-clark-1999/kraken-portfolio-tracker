@@ -1,3 +1,10 @@
+# ────────────────────────────────────────────────────────────────────────────
+# This server is read-only. It must never expose trading, deposit, or
+# withdrawal tools. The underlying Kraken API key is scoped to read-only
+# permissions; trade execution is an explicit future decision that requires
+# key rotation and separate safety review.
+# ────────────────────────────────────────────────────────────────────────────
+
 import asyncio
 import json
 
@@ -68,6 +75,20 @@ async def get_snapshots(time_range: str = "7d") -> str:
         snapshot_service.get_snapshots, from_dt=from_dt, to_dt=None
     )
     return json.dumps([s.model_dump() for s in snapshots], default=str)
+
+
+@mcp.tool()
+async def get_balance_change(timeframe: str) -> str:
+    """Get portfolio value change over a specified timeframe.
+
+    Compares the current live portfolio value against the nearest historical
+    snapshot to the start of the requested period.
+
+    Args:
+        timeframe: Period to compare — "1W", "1M", "3M", "6M", "1Y", or "ALL".
+    """
+    result = await asyncio.to_thread(portfolio_service.get_balance_change, timeframe)
+    return json.dumps(result.model_dump(), default=str)
 
 
 @mcp.tool()
