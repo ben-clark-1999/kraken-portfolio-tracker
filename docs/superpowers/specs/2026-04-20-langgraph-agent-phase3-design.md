@@ -13,12 +13,14 @@ A read-only portfolio analyst agent powered by LangGraph, exposed via WebSocket 
 ### Nodes
 
 1. **classify_query** — LLM classifier (Haiku) that labels the user's query
-2. **quick_agent** — Fast single-tool-call responses (Opus)
-3. **analysis_agent** — Multi-step analytical reasoning (Opus)
-4. **tax_agent** — CGT and ATO-aware analysis (Opus)
-5. **comparison_agent** — Counterfactual comparisons with HITL gate (Opus)
-6. **general_agent** — All tools, for vague/cross-category queries (Opus)
+2. **quick_agent** — Fast single-tool-call responses
+3. **analysis_agent** — Multi-step analytical reasoning
+4. **tax_agent** — CGT and ATO-aware analysis
+5. **comparison_agent** — Counterfactual comparisons with HITL gate
+6. **general_agent** — All tools, for vague/cross-category queries
 7. **respond** — Format and send via WebSocket
+
+All agent nodes use the model specified by `AGENT_MODEL` in `agent_config.py`.
 
 ### Classifier Output
 
