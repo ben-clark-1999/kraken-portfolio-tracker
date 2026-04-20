@@ -24,32 +24,44 @@ def get_last_synced_trade_id() -> str | None:
 def upsert_lots(trades: list[dict]) -> str | None:
     """
     Converts raw trade dicts (from kraken_service.get_trade_history) into lot rows
-    and upserts them into the lots table.
-    Returns the trade_id of the first trade processed (most recent),
+    and inserts only trades not already in the database.
+
+    Checks existing kraken_trade_id values first to avoid overwriting
+    remaining_quantity on lots that may have been partially disposed.
+
+    Returns the trade_id of the first trade in the input (most recent),
     or None if trades is empty.
     """
     if not trades:
         return None
 
     db = get_supabase()
-    rows = []
-    for trade in trades:
-        acquired_at = to_iso(unix_to_aest(trade["time"]))
-        quantity = Decimal(trade["vol"])
-        cost_per_unit = Decimal(trade["price"])
-        cost_aud = Decimal(trade["cost"])
 
-        rows.append({
-            "asset": trade["asset"],
-            "acquired_at": acquired_at,
-            "quantity": str(quantity),
-            "cost_aud": str(cost_aud),
-            "cost_per_unit_aud": str(cost_per_unit),
-            "kraken_trade_id": trade["trade_id"],
-            "remaining_quantity": str(quantity),
-        })
+    # Find which trades already exist
+    trade_ids = [t["trade_id"] for t in trades]
+    existing = db.table("lots").select("kraken_trade_id").in_("kraken_trade_id", trade_ids).execute()
+    existing_ids = {row["kraken_trade_id"] for row in existing.data}
 
-    db.table("lots").upsert(rows, on_conflict="kraken_trade_id").execute()
+    new_trades = [t for t in trades if t["trade_id"] not in existing_ids]
+    if new_trades:
+        rows = []
+        for trade in new_trades:
+            acquired_at = to_iso(unix_to_aest(trade["time"]))
+            quantity = Decimal(trade["vol"])
+            cost_per_unit = Decimal(trade["price"])
+            cost_aud = Decimal(trade["cost"])
+
+            rows.append({
+                "asset": trade["asset"],
+                "acquired_at": acquired_at,
+                "quantity": str(quantity),
+                "cost_aud": str(cost_aud),
+                "cost_per_unit_aud": str(cost_per_unit),
+                "kraken_trade_id": trade["trade_id"],
+                "remaining_quantity": str(quantity),
+            })
+        db.table("lots").insert(rows).execute()
+
     return trades[0]["trade_id"]
 
 
