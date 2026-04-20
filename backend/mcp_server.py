@@ -99,5 +99,22 @@ async def sync_trades() -> str:
         return json.dumps({"status": "error", "error": str(e)})
 
 
+@mcp.resource("portfolio://summary")
+async def portfolio_summary_resource() -> str:
+    """Current portfolio summary — total value, positions, P&L, allocations."""
+    summary = await asyncio.to_thread(portfolio_service.build_summary)
+    return json.dumps(summary.model_dump(), default=str)
+
+
+@mcp.resource("portfolio://snapshots/7d")
+async def snapshots_7d_resource() -> str:
+    """Portfolio value snapshots from the last 7 days."""
+    from_dt = to_iso(now_aest() - timedelta(days=7))
+    snapshots = await asyncio.to_thread(
+        snapshot_service.get_snapshots, from_dt=from_dt, to_dt=None
+    )
+    return json.dumps([s.model_dump() for s in snapshots], default=str)
+
+
 if __name__ == "__main__":
     mcp.run()

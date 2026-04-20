@@ -218,3 +218,38 @@ async def test_sync_trades_tool_error(mock_kraken, mock_sync):
 
     assert data["status"] == "error"
     assert "Kraken API down" in data["error"]
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.portfolio_service")
+async def test_portfolio_summary_resource(mock_portfolio):
+    mock_portfolio.build_summary.return_value = _sample_summary()
+
+    from backend.mcp_server import portfolio_summary_resource
+
+    result = await portfolio_summary_resource()
+    data = json.loads(result)
+
+    assert data["total_value_aud"] == 4000.00
+    assert len(data["positions"]) == 1
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.snapshot_service")
+async def test_snapshots_7d_resource(mock_snapshot):
+    mock_snapshot.get_snapshots.return_value = [
+        PortfolioSnapshot(
+            id="snap-1",
+            captured_at="2026-04-16T10:00:00+10:00",
+            total_value_aud=4000.00,
+            assets={"ETH": SnapshotAsset(quantity=1.0, value_aud=4000.00, price_aud=4000.00)},
+        )
+    ]
+
+    from backend.mcp_server import snapshots_7d_resource
+
+    result = await snapshots_7d_resource()
+    data = json.loads(result)
+
+    assert len(data) == 1
+    assert data[0]["total_value_aud"] == 4000.00
