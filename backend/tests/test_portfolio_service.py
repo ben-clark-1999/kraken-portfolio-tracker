@@ -8,6 +8,7 @@ from backend.services.portfolio_service import (
     get_balance_change,
     get_buy_and_hold_comparison,
     get_dca_analysis,
+    get_relative_performance,
     get_unrealised_cgt,
 )
 from backend.models.portfolio import PortfolioSummary
@@ -488,3 +489,121 @@ def test_buy_and_hold_skipped_buys(mock_sync, mock_kraken, mock_ohlc):
     assert len(result.per_buy_breakdown) == 1
     assert len(result.skipped_buys) == 1
     assert result.skipped_buys[0].date == "2025-10-08"
+
+
+# --- get_relative_performance tests ---
+
+
+def _mock_ohlc_two_assets():
+    """ETH up 50%, SOL down 25% over the period."""
+    return {
+        "ETH": {
+            "2026-03-20": 2000.0,
+            "2026-04-19": 3000.0,
+        },
+        "SOL": {
+            "2026-03-20": 200.0,
+            "2026-04-19": 150.0,
+        },
+    }
+
+
+@patch("backend.services.portfolio_service.get_ohlc_cached")
+@patch("backend.services.portfolio_service.kraken_service")
+def test_relative_performance_basic(mock_kraken, mock_ohlc):
+    """ETH +50%, SOL -25% → ETH rank 1, SOL rank 2, spread 75%."""
+    mock_kraken.ASSET_MAP = {
+        "ETH": {"keys": ["XETH"], "pair": "ETHAUD"},
+        "SOL": {"keys": ["SOL"], "pair": "SOLAUD"},
+    }
+    ohlc_data = _mock_ohlc_two_assets()
+    mock_ohlc.side_effect = lambda pair: {
+        "ETHAUD": ohlc_data["ETH"],
+        "SOLAUD": ohlc_data["SOL"],
+    }[pair]
+
+    result = get_relative_performance("1M")
+
+    assert result.end_date == "2026-04-19"
+    assert result.assets["ETH"].change_pct == 50.0
+    assert result.assets["SOL"].change_pct == -25.0
+    assert result.assets["ETH"].rank == 1
+    assert result.assets["SOL"].rank == 2
+    assert result.best_performer == "ETH"
+    assert result.worst_performer == "SOL"
+    assert result.spread_pct == 75.0
+
+
+@patch("backend.services.portfolio_service.get_ohlc_cached")
+@patch("backend.services.portfolio_service.kraken_service")
+def test_relative_performance_ratios(mock_kraken, mock_ohlc):
+    """ETH/SOL ratio should widen when ETH outperforms SOL."""
+    mock_kraken.ASSET_MAP = {
+        "ETH": {"keys": ["XETH"], "pair": "ETHAUD"},
+        "SOL": {"keys": ["SOL"], "pair": "SOLAUD"},
+    }
+    ohlc_data = _mock_ohlc_two_assets()
+    mock_ohlc.side_effect = lambda pair: {
+        "ETHAUD": ohlc_data["ETH"],
+        "SOLAUD": ohlc_data["SOL"],
+    }[pair]
+
+    result = get_relative_performance("1M")
+
+    ratio = result.ratios["ETH/SOL"]
+    # Start: 2000/200 = 10.0
+    assert ratio.start_ratio == 10.0
+    # End: 3000/150 = 20.0
+    assert ratio.end_ratio == 20.0
+    # Ratio went from 10 to 20 → 100% increase (ETH doubled vs SOL)
+    assert ratio.change_pct == 100.0
+
+
+@patch("backend.services.portfolio_service.get_ohlc_cached")
+@patch("backend.services.portfolio_service.kraken_service")
+def test_relative_performance_end_date_accuracy(mock_kraken, mock_ohlc):
+    """end_date must be the actual latest OHLC date, not 'today'."""
+    mock_kraken.ASSET_MAP = {
+        "ETH": {"keys": ["XETH"], "pair": "ETHAUD"},
+    }
+    mock_ohlc.return_value = {
+        "2026-04-01": 3000.0,
+        "2026-04-18": 3500.0,  # latest available = yesterday
+    }
+
+    result = get_relative_performance("1M")
+
+    # Must report the actual OHLC date, not today
+    assert result.end_date == "2026-04-18"
+    assert result.start_date == "2026-04-01"
+
+
+@patch("backend.services.portfolio_service.get_ohlc_cached")
+@patch("backend.services.portfolio_service.kraken_service")
+def test_relative_performance_three_assets_ranking(mock_kraken, mock_ohlc):
+    """Three assets ranked correctly: best=1, worst=3."""
+    mock_kraken.ASSET_MAP = {
+        "ETH": {"keys": ["XETH"], "pair": "ETHAUD"},
+        "SOL": {"keys": ["SOL"], "pair": "SOLAUD"},
+        "ADA": {"keys": ["ADA"], "pair": "ADAAUD"},
+    }
+    mock_ohlc.side_effect = lambda pair: {
+        "ETHAUD": {"2026-03-20": 3000.0, "2026-04-19": 3300.0},  # +10%
+        "SOLAUD": {"2026-03-20": 200.0, "2026-04-19": 260.0},    # +30%
+        "ADAAUD": {"2026-03-20": 1.00, "2026-04-19": 0.80},      # -20%
+    }[pair]
+
+    result = get_relative_performance("1M")
+
+    assert result.assets["SOL"].rank == 1
+    assert result.assets["ETH"].rank == 2
+    assert result.assets["ADA"].rank == 3
+    assert result.best_performer == "SOL"
+    assert result.worst_performer == "ADA"
+    assert result.spread_pct == 50.0  # 30 - (-20)
+
+    # Should have 3 pairwise ratios: ETH/SOL, ETH/ADA, SOL/ADA
+    assert len(result.ratios) == 3
+    assert "ETH/SOL" in result.ratios
+    assert "ETH/ADA" in result.ratios
+    assert "SOL/ADA" in result.ratios

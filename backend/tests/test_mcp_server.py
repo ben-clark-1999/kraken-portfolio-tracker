@@ -4,12 +4,14 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from backend.models.analytics import (
+    AssetPerformance,
     BalanceChange,
     BuyAndHoldComparison,
     CGTLot,
     CGTSummary,
     DCAAnalysis,
     DCAAnalysisAsset,
+    RelativePerformance,
     UnrealisedCGT,
 )
 from backend.models.portfolio import PortfolioSummary, AssetPosition
@@ -305,6 +307,34 @@ async def test_get_buy_and_hold_comparison_tool(mock_portfolio):
     mock_portfolio.get_buy_and_hold_comparison.assert_called_once_with("ETH")
     assert data["asset"] == "ETH"
     assert data["difference_aud"] == 300.00
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.portfolio_service")
+async def test_get_relative_performance_tool(mock_portfolio):
+    mock_portfolio.get_relative_performance.return_value = RelativePerformance(
+        timeframe="1M",
+        start_date="2026-03-20",
+        end_date="2026-04-19",
+        assets={
+            "ETH": AssetPerformance(
+                start_price_aud=3000.0, end_price_aud=4000.0, change_pct=33.33, rank=1,
+            ),
+        },
+        ratios={},
+        best_performer="ETH",
+        worst_performer="ETH",
+        spread_pct=0,
+    )
+
+    from backend.mcp_server import get_relative_performance
+
+    result = await get_relative_performance(timeframe="1M")
+    data = json.loads(result)
+
+    mock_portfolio.get_relative_performance.assert_called_once_with("1M")
+    assert data["best_performer"] == "ETH"
+    assert data["end_date"] == "2026-04-19"
 
 
 @pytest.mark.asyncio

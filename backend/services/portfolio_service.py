@@ -8,6 +8,7 @@ from backend.utils.timezone import to_iso, now_aest
 from dateutil.relativedelta import relativedelta
 
 from backend.models.analytics import (
+    AssetPerformance,
     BalanceChange,
     BuyAndHoldComparison,
     BuyBreakdown,
@@ -15,6 +16,8 @@ from backend.models.analytics import (
     CGTSummary,
     DCAAnalysis,
     DCAAnalysisAsset,
+    PairRatio,
+    RelativePerformance,
     SkippedBuy,
     UnrealisedCGT,
 )
@@ -379,4 +382,107 @@ def get_buy_and_hold_comparison(asset: str) -> BuyAndHoldComparison:
         difference_pct=round(diff_pct, 2),
         per_buy_breakdown=breakdowns,
         skipped_buys=skipped,
+    )
+
+
+def get_relative_performance(timeframe: str) -> RelativePerformance:
+    """Compare % change of all tracked assets over a timeframe.
+
+    Uses OHLC close prices for both start and end dates so the comparison is
+    consistent. end_date reflects the actual OHLC date used (may be yesterday
+    if today's candle hasn't closed).
+    """
+    assets = list(kraken_service.ASSET_MAP.keys())
+
+    # Fetch OHLC for all assets
+    ohlc_by_asset: dict[str, dict[str, float]] = {}
+    for asset in assets:
+        pair = kraken_service.ASSET_MAP[asset]["pair"]
+        ohlc_by_asset[asset] = get_ohlc_cached(pair)
+
+    # Determine end_date = latest OHLC date available across all assets
+    all_dates: set[str] = set()
+    for prices in ohlc_by_asset.values():
+        all_dates.update(prices.keys())
+
+    if not all_dates:
+        raise ValueError("No OHLC data available for any asset")
+
+    end_date = max(all_dates)
+
+    # Determine start_date
+    if timeframe == "ALL":
+        start_date = min(all_dates)
+    else:
+        days = _parse_timeframe_days(timeframe)
+        from datetime import date as date_type
+        target = date_type.fromisoformat(end_date) - timedelta(days=days)
+        target_str = target.isoformat()
+        # Find closest available date >= target
+        candidates = sorted(d for d in all_dates if d >= target_str)
+        if candidates:
+            start_date = candidates[0]
+        else:
+            start_date = min(all_dates)
+
+    # Compute per-asset performance
+    perf: dict[str, dict] = {}
+    for asset in assets:
+        ohlc = ohlc_by_asset[asset]
+        start_price = ohlc.get(start_date, 0.0)
+        end_price = ohlc.get(end_date, 0.0)
+        change_pct = ((end_price - start_price) / start_price * 100) if start_price else 0
+        perf[asset] = {
+            "start_price": start_price,
+            "end_price": end_price,
+            "change_pct": round(change_pct, 2),
+        }
+
+    # Rank by change_pct descending (1 = best)
+    ranked = sorted(perf.keys(), key=lambda a: perf[a]["change_pct"], reverse=True)
+    for rank, asset in enumerate(ranked, 1):
+        perf[asset]["rank"] = rank
+
+    asset_results = {
+        asset: AssetPerformance(
+            start_price_aud=perf[asset]["start_price"],
+            end_price_aud=perf[asset]["end_price"],
+            change_pct=perf[asset]["change_pct"],
+            rank=perf[asset]["rank"],
+        )
+        for asset in assets
+    }
+
+    # Pairwise ratios
+    ratios: dict[str, PairRatio] = {}
+    for i, a in enumerate(assets):
+        for b in assets[i + 1:]:
+            start_a = perf[a]["start_price"]
+            start_b = perf[b]["start_price"]
+            end_a = perf[a]["end_price"]
+            end_b = perf[b]["end_price"]
+
+            start_ratio = (start_a / start_b) if start_b else 0
+            end_ratio = (end_a / end_b) if end_b else 0
+            ratio_change = ((end_ratio - start_ratio) / start_ratio * 100) if start_ratio else 0
+
+            ratios[f"{a}/{b}"] = PairRatio(
+                start_ratio=round(start_ratio, 6),
+                end_ratio=round(end_ratio, 6),
+                change_pct=round(ratio_change, 2),
+            )
+
+    best = ranked[0]
+    worst = ranked[-1]
+    spread = perf[best]["change_pct"] - perf[worst]["change_pct"]
+
+    return RelativePerformance(
+        timeframe=timeframe,
+        start_date=start_date,
+        end_date=end_date,
+        assets=asset_results,
+        ratios=ratios,
+        best_performer=best,
+        worst_performer=worst,
+        spread_pct=round(spread, 2),
     )

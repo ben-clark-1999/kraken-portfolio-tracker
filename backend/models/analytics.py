@@ -76,3 +76,27 @@ class BuyAndHoldComparison(BaseModel):
     difference_pct: float
     per_buy_breakdown: list[BuyBreakdown]
     skipped_buys: list[SkippedBuy]
+
+
+class AssetPerformance(BaseModel):
+    start_price_aud: float
+    end_price_aud: float
+    change_pct: float
+    rank: int
+
+
+class PairRatio(BaseModel):
+    start_ratio: float
+    end_ratio: float
+    change_pct: float
+
+
+class RelativePerformance(BaseModel):
+    timeframe: str
+    start_date: str
+    end_date: str
+    assets: dict[str, AssetPerformance]
+    ratios: dict[str, PairRatio]
+    best_performer: str
+    worst_performer: str
+    spread_pct: float

@@ -133,6 +133,22 @@ async def get_buy_and_hold_comparison(asset: str) -> str:
 
 
 @mcp.tool()
+async def get_relative_performance(timeframe: str) -> str:
+    """Compare percentage change of all tracked assets over a timeframe.
+
+    Returns per-asset performance (start/end price, % change, rank), pairwise
+    ratios between all assets and their % change, best/worst performers, and
+    spread. Uses OHLC close prices — end_date reflects the actual OHLC date
+    used, which may be yesterday if today's candle hasn't closed.
+
+    Args:
+        timeframe: Period to compare — "1W", "1M", "3M", "6M", "1Y", or "ALL".
+    """
+    result = await asyncio.to_thread(portfolio_service.get_relative_performance, timeframe)
+    return json.dumps(result.model_dump(), default=str)
+
+
+@mcp.tool()
 async def sync_trades() -> str:
     """Pull latest trades from Kraken and sync to the database. Returns the number of new trades imported."""
     def _sync():

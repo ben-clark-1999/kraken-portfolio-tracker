@@ -28,6 +28,7 @@ async def test_mcp_server_lists_tools():
         "get_dca_analysis",
         "get_unrealised_cgt",
         "get_buy_and_hold_comparison",
+        "get_relative_performance",
     }
 
 
