@@ -5,6 +5,8 @@ from backend.models.portfolio import AssetPosition, PortfolioSummary
 from backend.models.trade import Lot, DCAEntry
 from backend.utils.fifo import calculate_cost_basis, LotInput
 from backend.utils.timezone import to_iso, now_aest
+from backend.services import kraken_service
+from backend.services import sync_service
 
 
 def calculate_summary(
@@ -53,6 +55,17 @@ def calculate_summary(
         captured_at=to_iso(now_aest()),
         next_dca_date=next_dca.isoformat() if next_dca else None,
     )
+
+
+def build_summary() -> PortfolioSummary:
+    """Orchestrate balances, prices, lots into a full portfolio summary.
+
+    Single entry point used by the FastAPI router, scheduler, and MCP server.
+    """
+    balances = kraken_service.get_balances()
+    prices = kraken_service.get_ticker_prices(list(balances.keys()))
+    lots = sync_service.get_all_lots()
+    return calculate_summary(balances, prices, lots)
 
 
 def get_dca_history(lots: list[Lot], prices: dict[str, Decimal]) -> list[DCAEntry]:
