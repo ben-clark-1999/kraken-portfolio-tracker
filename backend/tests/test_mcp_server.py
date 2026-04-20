@@ -181,3 +181,40 @@ async def test_get_snapshots_tool_all_range(mock_snapshot):
     assert data == []
     call_args = mock_snapshot.get_snapshots.call_args
     assert call_args[1]["from_dt"] is None
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.sync_service")
+@patch("backend.mcp_server.kraken_service")
+async def test_sync_trades_tool(mock_kraken, mock_sync):
+    mock_sync.get_last_synced_trade_id.return_value = "old-t1"
+    mock_kraken.get_trade_history.return_value = [
+        {"trade_id": "t2", "asset": "ETH", "time": 1700000000.0, "price": "3000", "vol": "0.5", "cost": "1500"},
+    ]
+    mock_sync.upsert_lots.return_value = "t2"
+
+    from backend.mcp_server import sync_trades
+
+    result = await sync_trades()
+    data = json.loads(result)
+
+    assert data["status"] == "success"
+    assert data["new_trades_count"] == 1
+    assert data["last_trade_id"] == "t2"
+    mock_sync.record_sync.assert_called_once_with(last_trade_id="t2", status="success")
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.sync_service")
+@patch("backend.mcp_server.kraken_service")
+async def test_sync_trades_tool_error(mock_kraken, mock_sync):
+    mock_sync.get_last_synced_trade_id.return_value = None
+    mock_kraken.get_trade_history.side_effect = Exception("Kraken API down")
+
+    from backend.mcp_server import sync_trades
+
+    result = await sync_trades()
+    data = json.loads(result)
+
+    assert data["status"] == "error"
+    assert "Kraken API down" in data["error"]

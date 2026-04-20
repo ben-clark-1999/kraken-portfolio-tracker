@@ -70,5 +70,34 @@ async def get_snapshots(time_range: str = "7d") -> str:
     return json.dumps([s.model_dump() for s in snapshots], default=str)
 
 
+@mcp.tool()
+async def sync_trades() -> str:
+    """Pull latest trades from Kraken and sync to the database. Returns the number of new trades imported."""
+    def _sync():
+        last_trade_id = sync_service.get_last_synced_trade_id()
+        trades = kraken_service.get_trade_history(since_trade_id=last_trade_id)
+        new_last_id = sync_service.upsert_lots(trades)
+        sync_service.record_sync(
+            last_trade_id=new_last_id or last_trade_id, status="success"
+        )
+        return {
+            "new_trades_count": len(trades),
+            "last_trade_id": new_last_id,
+            "status": "success",
+        }
+
+    try:
+        result = await asyncio.to_thread(_sync)
+        return json.dumps(result)
+    except Exception as e:
+        try:
+            sync_service.record_sync(
+                last_trade_id=None, status="error", error_message=str(e)
+            )
+        except Exception:
+            pass
+        return json.dumps({"status": "error", "error": str(e)})
+
+
 if __name__ == "__main__":
     mcp.run()
