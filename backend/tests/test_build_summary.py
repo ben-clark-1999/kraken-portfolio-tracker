@@ -1,5 +1,5 @@
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from backend.models.trade import Lot
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
