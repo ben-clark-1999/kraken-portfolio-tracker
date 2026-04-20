@@ -407,3 +407,24 @@ async def test_snapshots_7d_resource(mock_snapshot):
 
     assert len(data) == 1
     assert data[0]["total_value_aud"] == 4000.00
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.snapshot_service")
+async def test_snapshots_30d_resource(mock_snapshot):
+    mock_snapshot.get_snapshots.return_value = [
+        PortfolioSnapshot(
+            id="snap-1",
+            captured_at="2026-03-25T10:00:00+10:00",
+            total_value_aud=3500.00,
+            assets={"ETH": SnapshotAsset(quantity=1.0, value_aud=3500.00, price_aud=3500.00)},
+        )
+    ]
+
+    from backend.mcp_server import snapshots_30d_resource
+
+    result = await snapshots_30d_resource()
+    data = json.loads(result)
+
+    assert len(data) == 1
+    assert data[0]["total_value_aud"] == 3500.00

@@ -194,5 +194,15 @@ async def snapshots_7d_resource() -> str:
     return json.dumps([s.model_dump() for s in snapshots], default=str)
 
 
+@mcp.resource("portfolio://snapshots/30d")
+async def snapshots_30d_resource() -> str:
+    """Portfolio value snapshots from the last 30 days."""
+    from_dt = to_iso(now_aest() - timedelta(days=30))
+    snapshots = await asyncio.to_thread(
+        snapshot_service.get_snapshots, from_dt=from_dt, to_dt=None
+    )
+    return json.dumps([s.model_dump() for s in snapshots], default=str)
+
+
 if __name__ == "__main__":
     mcp.run()

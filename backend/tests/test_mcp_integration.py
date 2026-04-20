@@ -43,4 +43,5 @@ async def test_mcp_server_lists_resources():
     assert resource_uris == {
         "portfolio://summary",
         "portfolio://snapshots/7d",
+        "portfolio://snapshots/30d",
     }
