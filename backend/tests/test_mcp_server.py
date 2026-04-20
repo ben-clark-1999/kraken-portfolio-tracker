@@ -40,3 +40,53 @@ async def test_get_portfolio_summary_tool(mock_portfolio):
     assert len(data["positions"]) == 1
     assert data["positions"][0]["asset"] == "ETH"
     assert data["captured_at"] == "2026-04-17T10:00:00+10:00"
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.kraken_service")
+async def test_get_balances_tool(mock_kraken):
+    mock_kraken.get_balances.return_value = {
+        "ETH": Decimal("0.9445"),
+        "SOL": Decimal("9.03"),
+    }
+
+    from backend.mcp_server import get_balances
+
+    result = await get_balances()
+    data = json.loads(result)
+
+    mock_kraken.get_balances.assert_called_once()
+    assert data["ETH"] == "0.9445"
+    assert data["SOL"] == "9.03"
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.kraken_service")
+async def test_get_prices_tool_default_assets(mock_kraken):
+    mock_kraken.get_ticker_prices.return_value = {
+        "ETH": Decimal("4000.00"),
+        "SOL": Decimal("220.50"),
+        "ADA": Decimal("0.85"),
+    }
+
+    from backend.mcp_server import get_prices
+
+    result = await get_prices()
+    data = json.loads(result)
+
+    mock_kraken.get_ticker_prices.assert_called_once_with(["ETH", "SOL", "ADA"])
+    assert data["ETH"] == "4000.00"
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_server.kraken_service")
+async def test_get_prices_tool_specific_assets(mock_kraken):
+    mock_kraken.get_ticker_prices.return_value = {"ETH": Decimal("4000.00")}
+
+    from backend.mcp_server import get_prices
+
+    result = await get_prices(assets=["ETH"])
+    data = json.loads(result)
+
+    mock_kraken.get_ticker_prices.assert_called_once_with(["ETH"])
+    assert data["ETH"] == "4000.00"
