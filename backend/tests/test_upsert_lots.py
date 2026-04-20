@@ -18,13 +18,11 @@ def test_upsert_lots_skips_existing_trades(mock_get_db):
     mock_get_db.return_value = mock_db
 
     # Simulate t1 already existing in the database
-    mock_select = MagicMock()
     mock_db.table.return_value.select.return_value.in_.return_value.execute.return_value = MagicMock(
         data=[{"kraken_trade_id": "t1"}]
     )
 
     # Mock insert chain
-    mock_insert = MagicMock()
     mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
 
     from backend.services.sync_service import upsert_lots
