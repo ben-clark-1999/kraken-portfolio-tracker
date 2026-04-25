@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     kraken_api_secret: str
     supabase_url: str
     supabase_key: str
+    supabase_db_url: str = ""
+    anthropic_api_key: str = ""
     kraken_live_tests: bool = False
 
     model_config = {"env_file": str(_ENV_FILE), "env_file_encoding": "utf-8"}
