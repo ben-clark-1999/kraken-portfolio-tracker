@@ -1,8 +1,11 @@
 """REST endpoints for the agent — session message rehydration."""
 
+import jwt as pyjwt
 from fastapi import APIRouter, Query, WebSocket
 
 from backend.agent.checkpointer import extract_messages
+from backend.auth.dependencies import COOKIE_NAME
+from backend.auth.jwt import decode_token
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -28,7 +31,22 @@ async def get_session_messages(session_id: str):
 
 @router.websocket("/chat")
 async def agent_chat(ws: WebSocket, session_id: str | None = Query(default=None)):
-    """WebSocket endpoint for agent chat."""
+    """WebSocket endpoint for agent chat.
+
+    Manually verifies the auth cookie before accepting the connection,
+    since FastAPI dependency-based auth doesn't apply to WebSocket routes
+    in the same way.
+    """
+    token = ws.cookies.get(COOKIE_NAME)
+    if not token:
+        await ws.close(code=4401)
+        return
+    try:
+        decode_token(token)
+    except pyjwt.PyJWTError:
+        await ws.close(code=4401)
+        return
+
     from backend.agent.websocket_handler import agent_chat_endpoint
     from backend.main import app
 

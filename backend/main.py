@@ -1,9 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.auth.dependencies import require_auth
 from backend.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
@@ -62,17 +63,23 @@ app.add_middleware(
     allow_origins=["http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
-from backend.routers import portfolio, history, sync, agent
+from backend.routers import agent, auth, history, portfolio, sync
 
-app.include_router(portfolio.router)
-app.include_router(history.router)
-app.include_router(sync.router)
-app.include_router(agent.router)
+# Auth router is unprotected (login itself can't require auth)
+app.include_router(auth.router)
+
+# All other routers require a valid auth cookie
+app.include_router(portfolio.router, dependencies=[Depends(require_auth)])
+app.include_router(history.router, dependencies=[Depends(require_auth)])
+app.include_router(sync.router, dependencies=[Depends(require_auth)])
+app.include_router(agent.router, dependencies=[Depends(require_auth)])
 
 
 @app.get("/api/health")
 async def health() -> dict:
+    """Public — used to confirm the server is up before login."""
     agent_ok = app.state.agent_graph is not None
     return {"status": "ok", "agent": agent_ok}
