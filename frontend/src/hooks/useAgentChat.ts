@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { AgentMessage, ToolActivity, HITLState, ServerMessage, ClientMessage } from '../types/agent'
+import { apiFetch } from '../api/client'
 
 const SESSION_KEY = 'agent_session_id'
 const REHYDRATE_URL = '/api/agent/sessions'
@@ -63,7 +64,7 @@ export function useAgentChat(): UseAgentChatReturn {
         localStorage.setItem(SESSION_KEY, msg.session_id)
         if (msg.type === 'session_resumed') {
           // Rehydrate messages
-          fetch(`${REHYDRATE_URL}/${msg.session_id}/messages`)
+          apiFetch(`${REHYDRATE_URL}/${msg.session_id}/messages`)
             .then((r) => r.json())
             .then((data) => {
               const hydrated: AgentMessage[] = data.messages.map(

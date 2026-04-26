@@ -1,7 +1,8 @@
 import type { PortfolioSummary, PortfolioSnapshot, DCAEntry } from '../types'
+import { apiFetch } from './client'
 
 async function fetchJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url)
+  const res = await apiFetch(url)
   if (!res.ok) throw new Error(`${url} returned ${res.status} ${res.statusText}`)
   return res.json() as T
 }
