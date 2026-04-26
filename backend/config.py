@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     supabase_key: str
     supabase_db_url: str = ""
     anthropic_api_key: str = ""
+    app_password_hash: str
+    jwt_secret: str
     kraken_live_tests: bool = False
 
     model_config = {"env_file": str(_ENV_FILE), "env_file_encoding": "utf-8"}

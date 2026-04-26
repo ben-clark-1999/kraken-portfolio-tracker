@@ -18,3 +18,5 @@ psycopg-pool==3.3.0
 pytest==8.2.0
 pytest-asyncio==0.24.0
 httpx==0.28.1
+bcrypt==5.0.0
+pyjwt==2.12.1
