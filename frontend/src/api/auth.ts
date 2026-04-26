@@ -11,8 +11,12 @@ export class LoginError extends Error {
 }
 
 export async function login(password: string): Promise<void> {
-  const response = await apiFetch('/api/auth/login', {
+  // Bypass apiFetch — a 401 here means wrong password, not session expiry,
+  // so we don't want to dispatch the global UNAUTHORIZED_EVENT.
+  const response = await fetch('/api/auth/login', {
     method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   })
 
