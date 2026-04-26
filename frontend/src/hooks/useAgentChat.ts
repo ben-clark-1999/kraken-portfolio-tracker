@@ -34,8 +34,10 @@ export function useAgentChat(): UseAgentChatReturn {
     const ws = new WebSocket(`${protocol}//${window.location.host}/api/agent/chat${params}`)
 
     ws.onopen = () => setConnected(true)
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setConnected(false)
+      // Skip reconnect on auth-required close (server told us we're not authenticated)
+      if (event.code === 4401) return
       // Reconnect after 2s
       setTimeout(() => {
         const storedSid = localStorage.getItem(SESSION_KEY)

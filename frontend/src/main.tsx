@@ -1,12 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './globals.css'
-import Dashboard from './pages/Dashboard'
-
-document.documentElement.classList.add('dark')
+import App from './App'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Dashboard />
+    <App />
   </StrictMode>,
 )
