@@ -1,6 +1,14 @@
+import os
+
 import pytest
 from supabase import create_client, Client
 from backend.config import settings
+
+# Propagate secrets from pydantic settings → process environment so that
+# langchain_anthropic's ChatAnthropic() can resolve the API key without
+# requiring callers to pass api_key= everywhere.
+if settings.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
+    os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
 
 # UUID that will never exist — used to match all rows via neq
 _SENTINEL_UUID = "00000000-0000-0000-0000-000000000001"

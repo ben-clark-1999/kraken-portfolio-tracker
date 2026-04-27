@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     from backend.agent.checkpointer import create_checkpointer
 
     try:
-        checkpointer = create_checkpointer()
+        checkpointer = await create_checkpointer()
         logger.info("[Startup] Checkpointer ready")
     except Exception:
         logger.exception("[Startup] Checkpointer setup failed — agent unavailable")

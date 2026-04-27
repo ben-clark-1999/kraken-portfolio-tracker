@@ -6,7 +6,7 @@ Swap models by changing constants — no graph rewiring needed.
 
 # ── Models ──────────────────────────────────────────────────────────────
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
-AGENT_MODEL = "claude-sonnet-4-5-20241022"
+AGENT_MODEL = "claude-sonnet-4-5"
 
 # ── Classifier routing ──────────────────────────────────────────────────
 CLASSIFIER_CONFIDENCE_THRESHOLD = 0.8

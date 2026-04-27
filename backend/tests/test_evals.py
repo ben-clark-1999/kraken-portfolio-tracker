@@ -22,7 +22,7 @@ async def test_full_eval_suite():
     tool_manager = MCPToolManager()
     tools = await tool_manager.start()
     try:
-        checkpointer = create_checkpointer()
+        checkpointer = await create_checkpointer()
         graph = build_graph(tools, checkpointer)
 
         queries = load_golden_set()
