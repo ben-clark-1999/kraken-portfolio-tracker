@@ -132,3 +132,91 @@ async def test_answer_quality_judge_returns_empty_when_no_dimensions(monkeypatch
     query = GoldenQuery(id="q1", query="x", judge_dimensions=[])
     scores = await judge_answer_quality(query, answer="anything", tool_results_summary="")
     assert scores == []
+
+
+@pytest.mark.asyncio
+async def test_answer_quality_judge_filters_unknown_dimension_names(monkeypatch):
+    """If the LLM returns a score with a name not in the requested set, drop it."""
+    from backend.evals.schema import DimensionScore
+
+    fake_response = MagicMock()
+    fake_response.scores = [
+        DimensionScore(name="cites_aud_value", passed=True, reasoning="contains $5,000"),
+        DimensionScore(name="garbage_dimension", passed=True, reasoning="hallucinated"),
+    ]
+
+    fake_model = MagicMock()
+    fake_model.ainvoke = AsyncMock(return_value=fake_response)
+    fake_model.with_structured_output = MagicMock(return_value=fake_model)
+
+    monkeypatch.setattr(
+        "backend.evals.judges.ChatAnthropic",
+        MagicMock(return_value=fake_model),
+    )
+
+    query = GoldenQuery(id="q1", query="x", judge_dimensions=["cites_aud_value"])
+    scores = await judge_answer_quality(query, answer="$5,000", tool_results_summary="")
+    assert len(scores) == 1
+    assert scores[0].name == "cites_aud_value"
+
+
+@pytest.mark.asyncio
+async def test_answer_quality_judge_returns_empty_on_llm_exception(monkeypatch):
+    """If ainvoke raises, return [] and log — don't crash the whole eval run."""
+    fake_model = MagicMock()
+    fake_model.ainvoke = AsyncMock(side_effect=RuntimeError("rate limit"))
+    fake_model.with_structured_output = MagicMock(return_value=fake_model)
+
+    monkeypatch.setattr(
+        "backend.evals.judges.ChatAnthropic",
+        MagicMock(return_value=fake_model),
+    )
+
+    query = GoldenQuery(id="q1", query="x", judge_dimensions=["cites_aud_value"])
+    scores = await judge_answer_quality(query, answer="x", tool_results_summary="")
+    assert scores == []
+
+
+@pytest.mark.asyncio
+async def test_answer_quality_judge_includes_prior_context_in_prompt(monkeypatch):
+    """When prior_query and prior_answer are passed, the judge prompt must include them."""
+    from backend.evals.schema import DimensionScore
+
+    captured_prompts = []
+
+    fake_response = MagicMock()
+    fake_response.scores = [DimensionScore(name="addresses_question", passed=True, reasoning="ok")]
+
+    async def _capture_ainvoke(messages):
+        # The user message is the second one; capture its content for assertion.
+        captured_prompts.append(messages[-1].content)
+        return fake_response
+
+    fake_model = MagicMock()
+    fake_model.ainvoke = _capture_ainvoke
+    fake_model.with_structured_output = MagicMock(return_value=fake_model)
+
+    monkeypatch.setattr(
+        "backend.evals.judges.ChatAnthropic",
+        MagicMock(return_value=fake_model),
+    )
+
+    query = GoldenQuery(
+        id="q034", query="What about SOL?",
+        judge_dimensions=["addresses_question"],
+        previous="q033",
+    )
+    await judge_answer_quality(
+        query,
+        answer="SOL is up 5% this month.",
+        tool_results_summary="",
+        prior_query="How's ETH been this month?",
+        prior_answer="ETH is up 8% this month, from $4,000 to $4,320.",
+    )
+
+    assert len(captured_prompts) == 1
+    prompt = captured_prompts[0]
+    assert "PREVIOUS TURN — USER ASKED" in prompt
+    assert "How's ETH been this month?" in prompt
+    assert "PREVIOUS TURN — AGENT ANSWERED" in prompt
+    assert "$4,000" in prompt or "this month" in prompt

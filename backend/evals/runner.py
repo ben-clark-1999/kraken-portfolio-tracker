@@ -26,7 +26,13 @@ def load_golden_set(path: Path | None = None) -> list[GoldenQuery]:
     return [GoldenQuery(**entry) for entry in raw]
 
 
-async def _run_single(graph, query: GoldenQuery, prior_thread_id: str | None) -> QueryResult:
+async def _run_single(
+    graph,
+    query: GoldenQuery,
+    prior_thread_id: str | None,
+    prior_query_text: str | None = None,
+    prior_answer: str | None = None,
+) -> QueryResult:
     """Invoke the graph on one query, capture the four observable outputs."""
     if query.previous and prior_thread_id is None:
         raise ValueError(f"Query {query.id} requires previous={query.previous} but no thread provided")
@@ -79,6 +85,8 @@ async def _run_single(graph, query: GoldenQuery, prior_thread_id: str | None) ->
     tool_results_summary = "\n---\n".join(actual_tool_results)
     answer_quality_scores = await judge_answer_quality(
         query, actual_answer, tool_results_summary,
+        prior_query=prior_query_text,
+        prior_answer=prior_answer,
     )
 
     return QueryResult(
@@ -105,11 +113,19 @@ async def run_evals(graph, queries: list[GoldenQuery]) -> EvalRun:
     results: list[QueryResult] = []
     # Map query_id → thread_id so multi-turn continuations re-use the session.
     thread_for: dict[str, str] = {}
+    # Map query_id → (query_text, answer) so multi-turn queries can pass
+    # the previous turn into the answer-quality judge.
+    prior_for: dict[str, tuple[str, str]] = {}
 
     for query in queries:
         prior_thread = thread_for.get(query.previous) if query.previous else None
         thread_id = prior_thread or str(uuid.uuid4())
         thread_for[query.id] = thread_id
+
+        prior_query_text: str | None = None
+        prior_answer: str | None = None
+        if query.previous and query.previous in prior_for:
+            prior_query_text, prior_answer = prior_for[query.previous]
 
         # Always pass the registered thread_id so multi-turn chains share state.
         # The previous version passed None when query.previous was unset, which
@@ -117,8 +133,13 @@ async def run_evals(graph, queries: list[GoldenQuery]) -> EvalRun:
         # a chain ran on a different thread than what got registered for
         # downstream turns. Latent bug; only matters once multi-turn queries
         # land in golden_set.yaml (Task 4.2).
-        result = await _run_single(graph, query, thread_id)
+        result = await _run_single(
+            graph, query, thread_id,
+            prior_query_text=prior_query_text,
+            prior_answer=prior_answer,
+        )
         results.append(result)
+        prior_for[query.id] = (query.query, result.actual_answer)
 
     finished_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return EvalRun(

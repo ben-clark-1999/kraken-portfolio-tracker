@@ -317,6 +317,7 @@
   judge_dimensions:
     - cites_actual_dates_from_tools
     - addresses_question
+    - honest_about_missing_data
 
 - id: q030
   query: "Give me the quick version of where I'm at."

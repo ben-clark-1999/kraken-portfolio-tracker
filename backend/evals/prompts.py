@@ -118,12 +118,23 @@ def build_judge_user_prompt(
     answer: str,
     tool_results_summary: str,
     dimensions: list[JudgeDimension],
+    prior_query: str | None = None,
+    prior_answer: str | None = None,
 ) -> str:
     """Build the per-query user prompt for the answer-quality judge."""
     dimension_block = "\n".join(
         f"- {d.name}: {d.criterion}" for d in dimensions
     )
+
+    prior_block = ""
+    if prior_query and prior_answer:
+        prior_block = (
+            f"PREVIOUS TURN — USER ASKED:\n{prior_query}\n\n"
+            f"PREVIOUS TURN — AGENT ANSWERED:\n{prior_answer}\n\n"
+        )
+
     return (
+        f"{prior_block}"
         f"QUERY:\n{query_text}\n\n"
         f"TOOL RESULTS AVAILABLE TO THE ANSWER:\n{tool_results_summary or '<none>'}\n\n"
         f"ANSWER:\n{answer}\n\n"

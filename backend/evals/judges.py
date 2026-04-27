@@ -1,10 +1,13 @@
 """Eval judges. Mechanical judges live here; LLM-as-judge added in Task 4.2."""
 
+import logging
 import os
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from backend.evals.prompts import (
     DIMENSION_CATALOGUE,
@@ -73,8 +76,14 @@ async def judge_answer_quality(
     query: GoldenQuery,
     answer: str,
     tool_results_summary: str,
+    prior_query: str | None = None,
+    prior_answer: str | None = None,
 ) -> list[DimensionScore]:
-    """LLM-as-judge for answer quality. Returns one DimensionScore per dimension."""
+    """LLM-as-judge for answer quality. Returns one DimensionScore per dimension.
+
+    For multi-turn queries (query.previous set), pass prior_query and prior_answer
+    so the judge can verify carry-forward dimensions like carries_timeframe_from_previous.
+    """
     if not query.judge_dimensions:
         return []
 
@@ -85,10 +94,34 @@ async def judge_answer_quality(
         answer=answer,
         tool_results_summary=tool_results_summary,
         dimensions=dimensions,
+        prior_query=prior_query,
+        prior_answer=prior_answer,
     )
 
-    response: _JudgeOutput = await model.ainvoke([
-        SystemMessage(content=JUDGE_SYSTEM_PROMPT),
-        HumanMessage(content=user_prompt),
-    ])
-    return response.scores
+    requested_names = set(query.judge_dimensions)
+
+    try:
+        response: _JudgeOutput = await model.ainvoke([
+            SystemMessage(content=JUDGE_SYSTEM_PROMPT),
+            HumanMessage(content=user_prompt),
+        ])
+    except Exception:
+        logger.exception(
+            "[Eval] judge_answer_quality failed for query %s", query.id,
+        )
+        return []
+
+    # Filter to requested dimensions only — protect aggregate stats from
+    # garbage-named scores returned by the model.
+    valid_scores = [s for s in response.scores if s.name in requested_names]
+    extra = [s.name for s in response.scores if s.name not in requested_names]
+    if extra:
+        logger.warning(
+            "[Eval] judge returned unknown dimensions for %s: %s", query.id, extra,
+        )
+    missing = requested_names - {s.name for s in valid_scores}
+    if missing:
+        logger.warning(
+            "[Eval] judge missed dimensions for %s: %s", query.id, sorted(missing),
+        )
+    return valid_scores
