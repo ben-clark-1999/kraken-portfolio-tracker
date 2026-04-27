@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { UNAUTHORIZED_EVENT } from './api/client'
 import { me } from './api/auth'
 import SideRail from './components/SideRail'
+import { ToastContainer } from './components/Toast'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import TaxHub from './pages/TaxHub'
@@ -54,6 +55,7 @@ export default function App() {
       ) : (
         <TaxHub />
       )}
+      <ToastContainer />
     </div>
   )
 }
