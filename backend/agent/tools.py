@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import sys
-import time
 from contextlib import AsyncExitStack
 from pathlib import Path
 
@@ -13,9 +12,6 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from backend.agent.agent_config import (
-    MCP_COOLDOWN_SECONDS,
-    MCP_FAILURE_WINDOW_SECONDS,
-    MCP_MAX_FAILURES,
     MCP_RESPONSIVENESS_TIMEOUT,
     TOOL_SUBSETS,
     TOOL_TIMEOUT_SECONDS,
@@ -48,32 +44,18 @@ class MCPToolManager:
     """Manages the MCP subprocess lifecycle and provides tools.
 
     Spawned once at FastAPI startup via an AsyncExitStack. The subprocess
-    stays alive for the application lifetime. Crash recovery restarts the
-    subprocess with cooldown protection.
+    stays alive for the application lifetime. Restart-on-crash is the
+    operator's responsibility.
     """
 
     def __init__(self) -> None:
         self._tools: list[BaseTool] = []
         self._session: ClientSession | None = None
         self._stack: AsyncExitStack | None = None
-        self._failure_times: list[float] = []
 
     @property
     def tools(self) -> list[BaseTool]:
         return list(self._tools)
-
-    def _in_cooldown(self) -> bool:
-        """Check if we're in cooldown after repeated failures."""
-        now = time.time()
-        # Prune old failures outside the window
-        self._failure_times = [
-            t for t in self._failure_times
-            if now - t < MCP_FAILURE_WINDOW_SECONDS
-        ]
-        return len(self._failure_times) >= MCP_MAX_FAILURES
-
-    def _record_failure(self) -> None:
-        self._failure_times.append(time.time())
 
     async def start(self) -> list[BaseTool]:
         """Start the MCP subprocess and load tools. Called once at startup."""
@@ -102,25 +84,6 @@ class MCPToolManager:
             self._session = None
             self._tools = []
             logger.info("[MCP] Stopped")
-
-    async def restart(self) -> list[BaseTool] | None:
-        """Restart after a crash. Returns None if in cooldown."""
-        if self._in_cooldown():
-            logger.warning(
-                "[MCP] In cooldown — %d failures in last %ds",
-                len(self._failure_times),
-                MCP_FAILURE_WINDOW_SECONDS,
-            )
-            return None
-
-        self._record_failure()
-        logger.info("[MCP] Restarting subprocess...")
-        await self.stop()
-        try:
-            return await self.start()
-        except Exception:
-            logger.exception("[MCP] Restart failed")
-            return None
 
 
 async def invoke_tool_with_timeout(tool: BaseTool, args: dict) -> str:

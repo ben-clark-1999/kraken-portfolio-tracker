@@ -46,11 +46,6 @@ HITL_TOOLS_GENERAL = {"get_buy_and_hold_comparison", "get_relative_performance"}
 TOOL_TIMEOUT_SECONDS = 30
 MCP_RESPONSIVENESS_TIMEOUT = 5
 
-# ── MCP crash recovery ──────────────────────────────────────────────────
-MCP_MAX_FAILURES = 3
-MCP_FAILURE_WINDOW_SECONDS = 300  # 5 minutes
-MCP_COOLDOWN_SECONDS = 300        # 5 minutes
-
 # ── WebSocket ───────────────────────────────────────────────────────────
 WS_HEARTBEAT_INTERVAL = 30   # seconds
 WS_HEARTBEAT_TIMEOUT = 90    # seconds without pong → close
