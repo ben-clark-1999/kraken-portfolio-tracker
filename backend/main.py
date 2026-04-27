@@ -66,7 +66,7 @@ app.add_middleware(
     allow_credentials=True,
 )
 
-from backend.routers import agent, auth, history, portfolio, sync
+from backend.routers import agent, auth, history, portfolio, sync, tax
 
 # Auth router is unprotected (login itself can't require auth)
 app.include_router(auth.router)
@@ -75,6 +75,7 @@ app.include_router(auth.router)
 app.include_router(portfolio.router, dependencies=[Depends(require_auth)])
 app.include_router(history.router, dependencies=[Depends(require_auth)])
 app.include_router(sync.router, dependencies=[Depends(require_auth)])
+app.include_router(tax.router, dependencies=[Depends(require_auth)])
 
 # Agent router has both REST (per-route Depends) and a WebSocket
 # (inline cookie check that closes with application code 4401 on auth failure)
