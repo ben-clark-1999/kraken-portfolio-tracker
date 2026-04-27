@@ -5,7 +5,7 @@ classification + tools + answer, hand off to judges.
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -88,7 +88,7 @@ async def _run_single(graph, query: GoldenQuery, prior_thread_id: str | None) ->
 async def run_evals(graph, queries: list[GoldenQuery]) -> EvalRun:
     """Run every query, return an EvalRun. Handles multi-turn linkage."""
     run_id = str(uuid.uuid4())[:8]
-    started_at = datetime.utcnow().isoformat() + "Z"
+    started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     results: list[QueryResult] = []
     # Map query_id → thread_id so multi-turn continuations re-use the session.
@@ -99,10 +99,16 @@ async def run_evals(graph, queries: list[GoldenQuery]) -> EvalRun:
         thread_id = prior_thread or str(uuid.uuid4())
         thread_for[query.id] = thread_id
 
-        result = await _run_single(graph, query, thread_id if query.previous else None)
+        # Always pass the registered thread_id so multi-turn chains share state.
+        # The previous version passed None when query.previous was unset, which
+        # caused _run_single to mint a SECOND UUID — meaning the first turn of
+        # a chain ran on a different thread than what got registered for
+        # downstream turns. Latent bug; only matters once multi-turn queries
+        # land in golden_set.yaml (Task 4.2).
+        result = await _run_single(graph, query, thread_id)
         results.append(result)
 
-    finished_at = datetime.utcnow().isoformat() + "Z"
+    finished_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return EvalRun(
         run_id=run_id,
         started_at=started_at,
