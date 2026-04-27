@@ -5,6 +5,12 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_portfolio_summary]
   forbidden_tools: [get_buy_and_hold_comparison, get_relative_performance]
+  judge_dimensions:
+    - cites_aud_value
+    - cites_timestamp
+    - no_filler_preamble
+    - formatting_correct
+    - addresses_question
 
 - id: q002
   query: "When's my next buy?"
@@ -12,6 +18,9 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_portfolio_summary, get_dca_history, get_dca_analysis]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - no_filler_preamble
+    - addresses_question
 
 - id: q003
   query: "How much have I put in so far?"
@@ -19,6 +28,10 @@
   min_confidence: 0.80
   expected_tools_any_of: [get_dca_analysis, get_dca_history, get_portfolio_summary]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - formatting_correct
+    - addresses_question
 
 - id: q004
   query: "What do I hold right now?"
@@ -26,6 +39,10 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_balances, get_portfolio_summary]
   forbidden_tools: [get_buy_and_hold_comparison, get_relative_performance]
+  judge_dimensions:
+    - formatting_correct
+    - no_filler_preamble
+    - addresses_question
 
 - id: q005
   query: "How much did I spend on ETH in total?"
@@ -33,6 +50,10 @@
   min_confidence: 0.80
   expected_tools_any_of: [get_dca_analysis, get_dca_history]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - formatting_correct
+    - addresses_question
 
 - id: q006
   query: "What's the current ETH price?"
@@ -40,6 +61,11 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_prices, get_portfolio_summary]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - formatting_correct
+    - no_filler_preamble
+    - addresses_question
 
 - id: q007
   query: "Show me my DCA history"
@@ -47,6 +73,10 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_dca_history]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - formatting_correct
+    - no_filler_preamble
+    - addresses_question
 
 - id: q008
   query: "How many lots do I have?"
@@ -54,6 +84,9 @@
   min_confidence: 0.75
   expected_tools_any_of: [get_dca_analysis, get_dca_history]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - no_filler_preamble
+    - addresses_question
 
 - id: q009
   query: "What's my SOL balance?"
@@ -61,6 +94,10 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_balances, get_portfolio_summary]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - formatting_correct
+    - no_filler_preamble
+    - addresses_question
 
 - id: q010
   query: "When did I make my last buy?"
@@ -68,6 +105,9 @@
   min_confidence: 0.80
   expected_tools_any_of: [get_dca_history, get_dca_analysis]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - no_filler_preamble
+    - addresses_question
 
 # Analysis path (8)
 - id: q011
@@ -76,6 +116,10 @@
   min_confidence: 0.75
   expected_tools_any_of: [get_balance_change, get_portfolio_summary]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - formatting_correct
+    - addresses_question
 
 - id: q012
   query: "How's ETH doing this month?"
@@ -83,6 +127,11 @@
   min_confidence: 0.80
   expected_tools_any_of: [get_relative_performance, get_balance_change]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - cites_actual_dates_from_tools
+    - formatting_correct
+    - addresses_question
 
 - id: q013
   query: "Was last week good or bad for me?"
@@ -90,6 +139,10 @@
   min_confidence: 0.80
   expected_tools_any_of: [get_balance_change]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - cites_actual_dates_from_tools
+    - addresses_question
 
 - id: q014
   query: "Which of my coins is doing best?"
@@ -97,6 +150,9 @@
   min_confidence: 0.80
   expected_tools_any_of: [get_relative_performance]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - addresses_question
+    - no_recommendation
 
 - id: q015
   query: "Which one is dragging me down?"
@@ -104,6 +160,9 @@
   min_confidence: 0.75
   expected_tools_any_of: [get_relative_performance]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - addresses_question
+    - no_recommendation
 
 - id: q016
   query: "How has my portfolio performed over the last 3 months?"
@@ -111,6 +170,10 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_balance_change, get_snapshots]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - cites_actual_dates_from_tools
+    - addresses_question
 
 - id: q017
   query: "Has my strategy paid off?"
@@ -118,6 +181,9 @@
   min_confidence: 0.65
   expected_tools_any_of: [get_balance_change, get_dca_analysis, get_relative_performance]
   forbidden_tools: []
+  judge_dimensions:
+    - addresses_question
+    - no_recommendation
 
 - id: q018
   query: "How's SOL doing this week vs last week?"
@@ -125,6 +191,10 @@
   min_confidence: 0.80
   expected_tools_any_of: [get_balance_change, get_relative_performance]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - cites_actual_dates_from_tools
+    - addresses_question
 
 # Tax path (2 — the remaining 3 land in Task 4.2)
 - id: q019
@@ -133,6 +203,11 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_unrealised_cgt]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - cites_ato_rule
+    - shows_math
+    - addresses_question
 
 - id: q020
   query: "Which of my buys are almost old enough for the CGT discount?"
@@ -140,3 +215,170 @@
   min_confidence: 0.85
   expected_tools_any_of: [get_unrealised_cgt]
   forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_ato_rule
+    - addresses_question
+
+# Tax path (continuing — 3 more)
+- id: q021
+  query: "Anything I should think about before June 30?"
+  expected_classification: tax
+  min_confidence: 0.75
+  expected_tools_any_of: [get_unrealised_cgt]
+  forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_ato_rule
+    - addresses_question
+    - no_recommendation
+
+- id: q022
+  query: "Which buys would save me the most tax if I waited longer to sell?"
+  expected_classification: tax
+  min_confidence: 0.75
+  expected_tools_any_of: [get_unrealised_cgt]
+  forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_ato_rule
+    - shows_math
+    - addresses_question
+
+- id: q023
+  query: "What's my CGT position on ETH right now?"
+  expected_classification: tax
+  min_confidence: 0.85
+  expected_tools_any_of: [get_unrealised_cgt]
+  forbidden_tools: [get_buy_and_hold_comparison]
+  judge_dimensions:
+    - cites_aud_value
+    - cites_ato_rule
+    - addresses_question
+
+# Comparison path (5)
+- id: q024
+  query: "Would I have been better off just buying ETH and holding?"
+  expected_classification: comparison
+  min_confidence: 0.85
+  expected_tools_any_of: [get_buy_and_hold_comparison]
+  forbidden_tools: []
+  judge_dimensions:
+    - states_assumptions
+    - no_recommendation
+    - cites_aud_value
+
+- id: q025
+  query: "What if I'd started a year earlier?"
+  expected_classification: comparison
+  min_confidence: 0.65
+  expected_tools_any_of: [get_buy_and_hold_comparison, get_relative_performance]
+  forbidden_tools: []
+  judge_dimensions:
+    - states_assumptions
+    - no_recommendation
+
+- id: q026
+  query: "Was DCA the right call vs lump sum?"
+  expected_classification: comparison
+  min_confidence: 0.75
+  expected_tools_any_of: [get_buy_and_hold_comparison]
+  forbidden_tools: []
+  judge_dimensions:
+    - states_assumptions
+    - no_recommendation
+    - addresses_question
+
+- id: q027
+  query: "Which of my buys was my best one?"
+  expected_classification: comparison
+  min_confidence: 0.65
+  expected_tools_any_of: [get_dca_history, get_relative_performance]
+  forbidden_tools: []
+  judge_dimensions:
+    - cites_aud_value
+    - addresses_question
+
+- id: q028
+  query: "Would all-in SOL have done better than my DCA mix?"
+  expected_classification: comparison
+  min_confidence: 0.85
+  expected_tools_any_of: [get_buy_and_hold_comparison]
+  forbidden_tools: []
+  judge_dimensions:
+    - states_assumptions
+    - no_recommendation
+    - cites_aud_value
+
+# Open / vague (4)
+- id: q029
+  query: "What's changed since last week?"
+  expected_classification: open
+  min_confidence: 0.65
+  expected_tools_any_of: [get_balance_change, get_relative_performance]
+  forbidden_tools: []
+  judge_dimensions:
+    - cites_actual_dates_from_tools
+    - addresses_question
+
+- id: q030
+  query: "Give me the quick version of where I'm at."
+  expected_classification: open
+  min_confidence: 0.75
+  expected_tools_any_of: [get_portfolio_summary, get_balance_change]
+  forbidden_tools: []
+  judge_dimensions:
+    - cites_aud_value
+    - addresses_question
+    - no_filler_preamble
+
+- id: q031
+  query: "Anything I should know?"
+  expected_classification: open
+  min_confidence: 0.65
+  expected_tools_any_of: [get_portfolio_summary, get_balance_change, get_unrealised_cgt]
+  forbidden_tools: []
+  judge_dimensions:
+    - no_recommendation
+    - addresses_question
+
+- id: q032
+  query: "What's the most interesting thing about my portfolio right now?"
+  expected_classification: open
+  min_confidence: 0.65
+  expected_tools_any_of: [get_portfolio_summary, get_relative_performance, get_unrealised_cgt]
+  forbidden_tools: []
+  judge_dimensions:
+    - no_recommendation
+    - addresses_question
+
+# Multi-turn sequence (3 — the phase 3 vision sequence)
+- id: q033
+  query: "How's ETH been this month?"
+  expected_classification: analysis
+  min_confidence: 0.80
+  expected_tools_any_of: [get_relative_performance, get_balance_change]
+  forbidden_tools: []
+  judge_dimensions:
+    - cites_actual_dates_from_tools
+    - addresses_question
+
+- id: q034
+  query: "What about SOL?"
+  previous: q033
+  expected_classification: analysis
+  min_confidence: 0.65
+  expected_tools_any_of: [get_relative_performance, get_balance_change]
+  forbidden_tools: []
+  judge_dimensions:
+    - carries_timeframe_from_previous
+    - addresses_question
+
+- id: q035
+  query: "Which one was a better buy?"
+  previous: q034
+  expected_classification: comparison
+  min_confidence: 0.65
+  expected_tools_any_of: [get_buy_and_hold_comparison, get_relative_performance]
+  forbidden_tools: []
+  judge_dimensions:
+    - carries_assets_from_previous
+    - states_assumptions
+    - no_recommendation

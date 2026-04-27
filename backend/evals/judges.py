@@ -1,6 +1,17 @@
 """Eval judges. Mechanical judges live here; LLM-as-judge added in Task 4.2."""
 
-from backend.evals.schema import GoldenQuery
+import os
+
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel
+
+from backend.evals.prompts import (
+    DIMENSION_CATALOGUE,
+    JUDGE_SYSTEM_PROMPT,
+    build_judge_user_prompt,
+)
+from backend.evals.schema import DimensionScore, GoldenQuery
 
 
 def judge_classification(
@@ -43,3 +54,41 @@ def judge_tool_use(
         if not (actual_set & expected):
             return False, f"expected at least one of {sorted(expected)}, got {sorted(actual_set)}"
     return True, None
+
+
+class _JudgeOutput(BaseModel):
+    """Structured output target for the LLM judge."""
+    scores: list[DimensionScore]
+
+
+# Default judge model = same as the agent. Override via env var for cheap iteration.
+DEFAULT_JUDGE_MODEL = "claude-sonnet-4-5-20241022"
+
+
+def _judge_model_name() -> str:
+    return os.environ.get("EVAL_JUDGE_MODEL", DEFAULT_JUDGE_MODEL)
+
+
+async def judge_answer_quality(
+    query: GoldenQuery,
+    answer: str,
+    tool_results_summary: str,
+) -> list[DimensionScore]:
+    """LLM-as-judge for answer quality. Returns one DimensionScore per dimension."""
+    if not query.judge_dimensions:
+        return []
+
+    dimensions = [DIMENSION_CATALOGUE[name] for name in query.judge_dimensions]
+    model = ChatAnthropic(model=_judge_model_name()).with_structured_output(_JudgeOutput)
+    user_prompt = build_judge_user_prompt(
+        query_text=query.query,
+        answer=answer,
+        tool_results_summary=tool_results_summary,
+        dimensions=dimensions,
+    )
+
+    response: _JudgeOutput = await model.ainvoke([
+        SystemMessage(content=JUDGE_SYSTEM_PROMPT),
+        HumanMessage(content=user_prompt),
+    ])
+    return response.scores

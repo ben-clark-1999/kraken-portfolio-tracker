@@ -80,3 +80,55 @@ def test_tool_use_pass_when_no_expectations_set():
     query = GoldenQuery(id="q1", query="...")
     passed, reason = judge_tool_use(query, actual_tools=["anything"])
     assert passed is True
+
+
+import os
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from backend.evals.judges import judge_answer_quality
+
+
+@pytest.mark.asyncio
+async def test_answer_quality_judge_returns_one_score_per_dimension(monkeypatch):
+    """Mock Anthropic; assert judge returns DimensionScore per requested dimension."""
+    from backend.evals.schema import DimensionScore
+
+    fake_response = MagicMock()
+    fake_response.scores = [
+        DimensionScore(name="cites_aud_value", passed=True, reasoning="contains $5,000"),
+        DimensionScore(name="cites_timestamp", passed=False, reasoning="no date stated"),
+    ]
+
+    fake_model = MagicMock()
+    fake_model.ainvoke = AsyncMock(return_value=fake_response)
+    fake_model.with_structured_output = MagicMock(return_value=fake_model)
+
+    monkeypatch.setattr(
+        "backend.evals.judges.ChatAnthropic",
+        MagicMock(return_value=fake_model),
+    )
+
+    query = GoldenQuery(
+        id="q1", query="value?",
+        judge_dimensions=["cites_aud_value", "cites_timestamp"],
+    )
+    scores = await judge_answer_quality(
+        query, answer="Your portfolio is $5,000.", tool_results_summary="",
+    )
+    assert len(scores) == 2
+    names = [s.name for s in scores]
+    assert names == ["cites_aud_value", "cites_timestamp"]
+    assert scores[0].passed is True
+    assert scores[1].passed is False
+
+
+@pytest.mark.asyncio
+async def test_answer_quality_judge_returns_empty_when_no_dimensions(monkeypatch):
+    """If a query has no judge_dimensions, the LLM is not invoked."""
+    fake_chat = MagicMock(side_effect=AssertionError("ChatAnthropic should not be called"))
+    monkeypatch.setattr("backend.evals.judges.ChatAnthropic", fake_chat)
+    query = GoldenQuery(id="q1", query="x", judge_dimensions=[])
+    scores = await judge_answer_quality(query, answer="anything", tool_results_summary="")
+    assert scores == []

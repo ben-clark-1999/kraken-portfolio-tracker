@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from backend.evals.judges import judge_classification, judge_tool_use
 from backend.evals.schema import EvalRun, GoldenQuery, QueryResult
@@ -38,6 +38,7 @@ async def _run_single(graph, query: GoldenQuery, prior_thread_id: str | None) ->
     actual_confidence = None
     actual_tools: list[str] = []
     actual_answer_parts: list[str] = []
+    actual_tool_results: list[str] = []  # NEW
     error_str: str | None = None
 
     try:
@@ -59,6 +60,9 @@ async def _run_single(graph, query: GoldenQuery, prior_thread_id: str | None) ->
                 if hasattr(chunk, "tool_calls") and chunk.tool_calls:
                     for tc in chunk.tool_calls:
                         actual_tools.append(tc["name"])
+                # Capture tool results for the answer-quality judge.
+                if isinstance(chunk, ToolMessage):
+                    actual_tool_results.append(str(chunk.content)[:500])  # truncate for prompt size
     except Exception as e:
         error_str = str(e)
         logger.exception("[Eval] query %s failed", query.id)
@@ -69,6 +73,13 @@ async def _run_single(graph, query: GoldenQuery, prior_thread_id: str | None) ->
         query, actual_classification, actual_confidence,
     )
     tool_pass, tool_reason = judge_tool_use(query, actual_tools)
+
+    # Answer-quality judge — only invokes the LLM if the query has dimensions.
+    from backend.evals.judges import judge_answer_quality
+    tool_results_summary = "\n---\n".join(actual_tool_results)
+    answer_quality_scores = await judge_answer_quality(
+        query, actual_answer, tool_results_summary,
+    )
 
     return QueryResult(
         id=query.id,
@@ -81,6 +92,7 @@ async def _run_single(graph, query: GoldenQuery, prior_thread_id: str | None) ->
         classification_reason=cls_reason,
         tool_use_pass=tool_pass,
         tool_use_reason=tool_reason,
+        answer_quality_scores=answer_quality_scores,
         error=error_str,
     )
 
