@@ -26,6 +26,8 @@ def clean_test_tables(test_db: Client):
             test_db.schema("test").table(table).delete().neq("id", _SENTINEL_UUID).execute()
         # prices table uses asset (text) as PK
         test_db.schema("test").table("prices").delete().neq("asset", "__sentinel__").execute()
+        # ohlc_cache table uses (pair, date) composite PK — no id column
+        test_db.schema("test").table("ohlc_cache").delete().neq("pair", "__sentinel__").execute()
 
     _clean()
     yield

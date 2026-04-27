@@ -84,20 +84,31 @@ async def _run_agent_loop(
     model = ChatAnthropic(model=AGENT_MODEL).bind_tools(tools)
     input_messages = [SystemMessage(content=system_prompt)] + list(state["messages"])
 
+    thread_id = config.get("configurable", {}).get("thread_id", "unknown")
+    classification = state.get("classification") or {}
+    path = classification.get("primary_category", "unknown")
+
     max_iterations = 5
-    for _ in range(max_iterations):
+    hit_max = True
+
+    for iteration in range(max_iterations):
         response = await model.ainvoke(input_messages, config=config)
         input_messages.append(response)
 
+        tool_names = [tc["name"] for tc in (response.tool_calls or [])]
+        logger.info(
+            "[Agent] thread=%s iter=%d path=%s tools=%s",
+            thread_id, iteration, path, ",".join(tool_names) or "<none>",
+        )
+
         if not response.tool_calls:
+            hit_max = False
             break
 
+        broke_for_hitl = False
         for tc in response.tool_calls:
             tool_name = tc["name"]
 
-            # HITL check — selective mode only triggers for genuinely
-            # expensive calls (buy_and_hold always, relative_performance
-            # only when timeframe >= 3M per spec)
             needs_hitl = hitl_mode == "all"
             if hitl_mode == "selective" and tool_name in HITL_TOOLS_GENERAL:
                 if tool_name == "get_relative_performance":
@@ -117,9 +128,10 @@ async def _run_agent_loop(
                 if not approved:
                     cancel = AIMessage(content="No problem — comparison cancelled.")
                     input_messages.append(cancel)
+                    hit_max = False
+                    broke_for_hitl = True
                     break
 
-            # Execute tool
             tool = next((t for t in tools if t.name == tool_name), None)
             if tool is None:
                 result = f"Error: Unknown tool {tool_name}"
@@ -129,14 +141,21 @@ async def _run_agent_loop(
             input_messages.append(
                 ToolMessage(content=result, tool_call_id=tc["id"])
             )
-        else:
-            # Inner for loop completed without break — continue outer loop
-            continue
-        # Break from outer loop if inner loop broke (HITL denied)
-        break
 
-    # Return only new messages (exclude system prompt and original messages)
-    original_count = 1 + len(state["messages"])  # 1 for SystemMessage
+        if broke_for_hitl:
+            break
+
+    if hit_max:
+        logger.warning(
+            "[Agent] thread=%s max_iterations_exceeded path=%s",
+            thread_id, path,
+        )
+        input_messages.append(AIMessage(content=(
+            "I needed more steps than I'm allowed for one turn — could you "
+            "narrow the question into a smaller piece?"
+        )))
+
+    original_count = 1 + len(state["messages"])
     return {"messages": input_messages[original_count:]}
 
 

@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "kraken-portfolio": {
-      "command": "/Users/benclark/Desktop/kraken-portfolio-tracker/backend/.venv/bin/python",
-      "args": ["-m", "backend.mcp_server"],
-      "cwd": "/Users/benclark/Desktop/kraken-portfolio-tracker"
-    }
-  }
-}

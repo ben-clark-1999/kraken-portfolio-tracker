@@ -1,37 +1,13 @@
 from collections import defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 from kraken.spot import User, Market
 from backend.config import settings
+from backend.config.assets import ASSET_MAP, BALANCE_KEY_TO_DISPLAY, LEDGER_ASSET_TO_DISPLAY
 
 
 class KrakenServiceError(Exception):
     """Raised when a Kraken API call fails."""
-
-
-# Mapping from display asset name → list of Kraken balance keys (spot + staked/bonded variants) + AUD pair
-ASSET_MAP: dict[str, dict] = {
-    "ETH": {
-        "keys": ["XETH", "ETH", "ETH.B", "ETH.S", "ETH2", "ETH2.S", "ETH.F"],
-        "pair": "ETHAUD",
-    },
-    "SOL": {
-        "keys": ["SOL", "SOL.S", "SOL.F", "SOL03.S"],
-        "pair": "SOLAUD",
-    },
-    "ADA": {
-        "keys": ["ADA", "ADA.S", "ADA.F"],
-        "pair": "ADAAUD",
-    },
-}
-
-# Mapping from ledger asset code → display asset name (used for trade history).
-# The ledger uses Kraken's native asset codes (XETH, SOL, ADA) rather than trading
-# pair names. These are the only assets we currently track as tradeable.
-LEDGER_ASSET_TO_DISPLAY: dict[str, str] = {
-    "XETH": "ETH",
-    "SOL":  "SOL",
-    "ADA":  "ADA",
-}
 
 _user: User | None = None
 _market: Market | None = None
@@ -177,3 +153,57 @@ def get_trade_history(since_trade_id: str | None = None) -> list[dict]:
         return filtered
 
     return trades
+
+
+def get_all_ledger_entries() -> list[dict]:
+    """Fetch every ledger entry for the account, sorted oldest-first.
+
+    Used by the backfill service to reconstruct daily holdings from the
+    complete history of deposits, trades, staking rewards, and transfers.
+    """
+    user = _get_user()
+    all_entries: dict[str, dict] = {}
+    offset = 0
+
+    while True:
+        try:
+            result = user.get_ledgers_info(ofs=offset)
+        except Exception as e:
+            raise KrakenServiceError(f"get_all_ledger_entries failed: {e}") from e
+        ledger: dict = result.get("ledger", {})
+        count: int = result.get("count", 0)
+
+        if not ledger:
+            break
+        all_entries.update(ledger)
+        offset += len(ledger)
+        if offset >= count:
+            break
+
+    entries = list(all_entries.values())
+    entries.sort(key=lambda e: e["time"])
+    return entries
+
+
+def get_ohlc_daily(pair: str) -> dict[str, float]:
+    """Return daily close prices as ``{YYYY-MM-DD: close_price}``.
+
+    Kraken returns up to 720 daily candles (~2 years), which is sufficient
+    for most personal portfolio histories.
+    """
+    market = _get_market()
+    try:
+        raw = market.get_ohlc(pair=pair, interval=1440)
+    except Exception as e:
+        raise KrakenServiceError(f"get_ohlc_daily({pair}) failed: {e}") from e
+
+    prices: dict[str, float] = {}
+    for key, candles in raw.items():
+        if key == "last":
+            continue
+        for candle in candles:
+            ts = int(candle[0])
+            close_price = float(candle[4])
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            prices[dt.strftime("%Y-%m-%d")] = close_price
+    return prices

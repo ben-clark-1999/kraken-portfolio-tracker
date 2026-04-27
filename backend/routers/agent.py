@@ -1,7 +1,7 @@
 """REST endpoints for the agent — session message rehydration."""
 
 import jwt as pyjwt
-from fastapi import APIRouter, Depends, Query, WebSocket
+from fastapi import APIRouter, Depends, Query, Request, WebSocket
 
 from backend.agent.checkpointer import extract_messages
 from backend.auth.dependencies import COOKIE_NAME, require_auth
@@ -11,14 +11,12 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
 @router.get("/sessions/{session_id}/messages", dependencies=[Depends(require_auth)])
-async def get_session_messages(session_id: str):
+async def get_session_messages(session_id: str, request: Request):
     """Rehydrate conversation history from checkpoint.
 
     Called by the frontend on page reload or reconnect.
     """
-    from backend.main import app
-
-    graph = app.state.agent_graph
+    graph = request.app.state.agent_graph
     config = {"configurable": {"thread_id": session_id}}
     state = await graph.aget_state(config)
 
@@ -55,7 +53,6 @@ async def agent_chat(ws: WebSocket, session_id: str | None = Query(default=None)
         return
 
     from backend.agent.websocket_handler import agent_chat_endpoint
-    from backend.main import app
 
-    graph = app.state.agent_graph
+    graph = ws.app.state.agent_graph
     await agent_chat_endpoint(ws, graph, session_id)

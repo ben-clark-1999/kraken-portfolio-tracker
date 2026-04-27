@@ -1,17 +1,13 @@
 import pytest
-from mcp import ClientSession, StdioServerParameters
+from mcp import ClientSession
 from mcp.client.stdio import stdio_client
 
-SERVER_PARAMS = StdioServerParameters(
-    command="backend/.venv/bin/python",
-    args=["-m", "backend.mcp_server"],
-    cwd="/Users/benclark/Desktop/kraken-portfolio-tracker",
-)
+from backend.agent.tools import MCP_SERVER_PARAMS
 
 
 @pytest.mark.asyncio
 async def test_mcp_server_lists_tools():
-    async with stdio_client(SERVER_PARAMS) as (read, write):
+    async with stdio_client(MCP_SERVER_PARAMS) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.list_tools()
@@ -34,7 +30,7 @@ async def test_mcp_server_lists_tools():
 
 @pytest.mark.asyncio
 async def test_mcp_server_lists_resources():
-    async with stdio_client(SERVER_PARAMS) as (read, write):
+    async with stdio_client(MCP_SERVER_PARAMS) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.list_resources()

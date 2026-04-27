@@ -110,9 +110,12 @@ async def _stream_graph_response(ws: WebSocket, graph, session_id: str, input_da
                     duration_ms = int((time.time() - start) * 1000)
                     await ws.send_json(make_tool_end(tool_name, duration_ms))
 
-    except Exception as e:
+    except Exception:
         logger.exception("[WS] Error during graph streaming")
-        await ws.send_json(make_error("model", str(e)))
+        await ws.send_json(make_error(
+            "model",
+            "The agent ran into an internal error. Please try again.",
+        ))
         return
 
     # Check for HITL interrupt

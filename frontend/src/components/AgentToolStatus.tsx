@@ -5,7 +5,7 @@ interface Props {
 }
 
 function formatToolName(name: string): string {
-  return name.replace(/^get_/, '').replace(/_/g, '_')
+  return name.replace(/^get_/, '').replace(/_/g, ' ')
 }
 
 function formatParams(params: Record<string, unknown>): string {

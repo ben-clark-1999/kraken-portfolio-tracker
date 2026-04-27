@@ -21,7 +21,7 @@ from backend.models.analytics import (
     SkippedBuy,
     UnrealisedCGT,
 )
-from backend.db.supabase_client import get_supabase
+from backend.repositories import ohlc_cache_repo
 from backend.services import kraken_service
 from backend.services import snapshot_service
 from backend.services import sync_service
@@ -300,18 +300,15 @@ def get_unrealised_cgt() -> UnrealisedCGT:
 
 
 def get_ohlc_cached(pair: str) -> dict[str, float]:
-    """Get daily OHLC close prices, caching in Supabase to avoid redundant Kraken calls."""
-    db = get_supabase()
-    cached = db.table("ohlc_cache").select("date, close_price").eq("pair", pair).execute()
-
-    if cached.data:
-        return {row["date"]: float(row["close_price"]) for row in cached.data}
+    """Get daily OHLC close prices, caching to avoid redundant Kraken calls."""
+    cached = ohlc_cache_repo.get_by_pair(pair)
+    if cached:
+        return cached
 
     prices = kraken_service.get_ohlc_daily(pair)
     if prices:
         rows = [{"pair": pair, "date": d, "close_price": p} for d, p in prices.items()]
-        db.table("ohlc_cache").upsert(rows, on_conflict="pair,date").execute()
-
+        ohlc_cache_repo.upsert(rows)
     return prices
 
 
