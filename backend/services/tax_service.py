@@ -31,7 +31,7 @@ from backend.models.tax import (
     TaxEntryUpdate,
     TaxPaidType,
 )
-from backend.services import kraken_service, sync_service
+from backend.services import kraken_service, storage_service, sync_service
 from backend.utils.financial_year import financial_year_from
 
 
@@ -90,6 +90,71 @@ def _row_to_entry(kind: TaxEntryKind, row: dict, attachments: list[TaxAttachment
     )
 
 
+# ── Storage namespace mapping ────────────────────────────────────
+
+_STORAGE_NAMESPACE = {
+    TaxEntryKind.DEDUCTIBLE: "deductibles",
+    TaxEntryKind.INCOME: "income",
+    TaxEntryKind.TAX_PAID: "tax_paid",
+}
+
+
+def _rebind_pending_attachments(
+    kind: TaxEntryKind,
+    entry_id: str,
+    fy: str,
+    attachment_ids: list[str],
+) -> list[TaxAttachment]:
+    """Bind PENDING attachments to a newly-created entry and move objects
+    from PENDING/{file} to {namespace}/{fy}/{file}.
+    """
+    if not attachment_ids:
+        return []
+
+    db = get_supabase()
+    pending_rows = (
+        db.table("tax_attachments")
+        .select("*")
+        .in_("id", attachment_ids)
+        .execute()
+        .data
+        or []
+    )
+    if not pending_rows:
+        return []
+
+    namespace = _STORAGE_NAMESPACE[kind]
+
+    moved_paths: list[tuple[str, str]] = []  # (att_id, new_path)
+    for row in pending_rows:
+        old_path = row["storage_path"]
+        filename = old_path.split("/")[-1]
+        new_path = f"{namespace}/{fy}/{filename}"
+        try:
+            db.storage.from_(storage_service.BUCKET).move(old_path, new_path)
+        except Exception as e:
+            raise storage_service.StorageBackendError(
+                f"Failed to move {old_path} → {new_path}: {e}"
+            ) from e
+        moved_paths.append((row["id"], new_path))
+
+    # Update DB rows: set parent_id and new storage_path
+    for att_id, new_path in moved_paths:
+        db.table("tax_attachments").update({
+            "parent_id": entry_id,
+            "storage_path": new_path,
+            "parent_kind": kind.value,
+        }).eq("id", att_id).execute()
+
+    return [TaxAttachment(
+        id=row["id"],
+        filename=row["filename"],
+        content_type=row["content_type"],
+        size_bytes=row["size_bytes"],
+        uploaded_at=row["uploaded_at"],
+    ) for row in pending_rows]
+
+
 # ── CRUD ─────────────────────────────────────────────────────────
 
 def create_entry(kind: TaxEntryKind, payload: TaxEntryCreate) -> TaxEntry:
@@ -114,7 +179,9 @@ def create_entry(kind: TaxEntryKind, payload: TaxEntryCreate) -> TaxEntry:
     if not result.data:
         raise TaxServiceError(f"Insert returned no data for kind={kind.value}")
 
-    return _row_to_entry(kind, result.data[0])
+    entry_row = result.data[0]
+    attachments = _rebind_pending_attachments(kind, entry_row["id"], fy, payload.attachment_ids)
+    return _row_to_entry(kind, entry_row, attachments)
 
 
 def _get_attachments_for(parent_kind: TaxEntryKind, ids: list[str]) -> dict[str, list[TaxAttachment]]:
@@ -211,8 +278,29 @@ def update_entry(kind: TaxEntryKind, id: str, patch: TaxEntryUpdate) -> TaxEntry
 
 
 def delete_entry(kind: TaxEntryKind, id: str) -> None:
-    """Hard-delete an entry. Attachment cascade is added in Task 8."""
+    """Hard-delete an entry and cascade its attachments (DB + Storage)."""
     db = get_supabase()
+
+    attachment_rows = (
+        db.table("tax_attachments")
+        .select("id, storage_path")
+        .eq("parent_kind", kind.value)
+        .eq("parent_id", id)
+        .execute()
+        .data
+        or []
+    )
+
+    if attachment_rows:
+        paths = [r["storage_path"] for r in attachment_rows]
+        try:
+            db.storage.from_(storage_service.BUCKET).remove(paths)
+        except Exception as e:
+            raise storage_service.StorageBackendError(
+                f"Failed to delete storage objects for entry {id}: {e}"
+            ) from e
+        db.table("tax_attachments").delete().eq("parent_kind", kind.value).eq("parent_id", id).execute()
+
     table = _KIND_TABLE[kind]
     result = db.table(table).delete().eq("id", id).execute()
     if not result.data:

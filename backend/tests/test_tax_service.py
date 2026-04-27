@@ -304,3 +304,92 @@ def test_get_kraken_activity_empty_when_no_lots(mock_supabase):
         result = tax_service.get_kraken_activity_by_fy()
 
     assert result == {}
+
+
+def test_create_entry_rebinds_pending_attachments(mock_supabase):
+    from backend.services import tax_service
+
+    payload = TaxEntryCreate(
+        description="Notion sub",
+        amount_aud=32.0,
+        date="2026-03-15",
+        type="software",
+        notes=None,
+        attachment_ids=["att-1", "att-2"],
+    )
+
+    inserted_entry = {
+        "id": "entry-1", "description": "Notion sub", "amount_aud": 32.0,
+        "date_paid": "2026-03-15", "type": "software", "notes": None,
+        "financial_year": "2025-26",
+        "created_at": "2026-03-15T00:00:00+11:00",
+        "updated_at": "2026-03-15T00:00:00+11:00",
+    }
+    deductibles = mock_supabase.table("tax_deductibles")
+    deductibles.insert.return_value.execute.return_value.data = [inserted_entry]
+
+    pending_attachments = [
+        {"id": "att-1", "storage_path": "PENDING/abc.pdf", "filename": "a.pdf",
+         "content_type": "application/pdf", "size_bytes": 100, "uploaded_at": "2026-03-15T00:00:00+11:00",
+         "parent_kind": "deductible", "parent_id": None},
+        {"id": "att-2", "storage_path": "PENDING/def.pdf", "filename": "b.pdf",
+         "content_type": "application/pdf", "size_bytes": 200, "uploaded_at": "2026-03-15T00:00:00+11:00",
+         "parent_kind": "deductible", "parent_id": None},
+    ]
+    attachments = mock_supabase.table("tax_attachments")
+    attachments.select.return_value.in_.return_value.execute.return_value.data = pending_attachments
+
+    update_chain = attachments.update.return_value.eq.return_value
+    update_chain.execute.return_value.data = [{}]
+
+    mock_supabase.storage.from_.return_value.move.return_value = None
+
+    result = tax_service.create_entry(TaxEntryKind.DEDUCTIBLE, payload)
+
+    assert result.id == "entry-1"
+    assert len(result.attachments) == 2
+
+    # Storage objects moved from PENDING to deductibles/{fy}/...
+    assert mock_supabase.storage.from_.return_value.move.call_count == 2
+    move_calls = mock_supabase.storage.from_.return_value.move.call_args_list
+    for call in move_calls:
+        old_path, new_path = call[0][0], call[0][1]
+        assert old_path.startswith("PENDING/")
+        assert new_path.startswith("deductibles/2025-26/")
+
+
+def test_delete_entry_cascades_attachments(mock_supabase):
+    from backend.services import tax_service
+
+    attachments = mock_supabase.table("tax_attachments")
+    attachment_rows = [
+        {"id": "att-1", "storage_path": "deductibles/2025-26/abc.pdf"},
+        {"id": "att-2", "storage_path": "deductibles/2025-26/def.pdf"},
+    ]
+    attachments.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = attachment_rows
+    attachments.delete.return_value.eq.return_value.eq.return_value.execute.return_value.data = attachment_rows
+
+    deductibles = mock_supabase.table("tax_deductibles")
+    deductibles.delete.return_value.eq.return_value.execute.return_value.data = [{"id": "entry-1"}]
+
+    tax_service.delete_entry(TaxEntryKind.DEDUCTIBLE, "entry-1")
+
+    mock_supabase.storage.from_.return_value.remove.assert_called_once()
+    removed_paths = mock_supabase.storage.from_.return_value.remove.call_args[0][0]
+    assert "deductibles/2025-26/abc.pdf" in removed_paths
+    assert "deductibles/2025-26/def.pdf" in removed_paths
+
+
+def test_delete_entry_with_no_attachments_skips_storage_calls(mock_supabase):
+    from backend.services import tax_service
+
+    attachments = mock_supabase.table("tax_attachments")
+    attachments.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
+
+    deductibles = mock_supabase.table("tax_deductibles")
+    deductibles.delete.return_value.eq.return_value.execute.return_value.data = [{"id": "entry-1"}]
+
+    tax_service.delete_entry(TaxEntryKind.DEDUCTIBLE, "entry-1")
+
+    # No storage calls when there are no attachments
+    mock_supabase.storage.from_.return_value.remove.assert_not_called()
