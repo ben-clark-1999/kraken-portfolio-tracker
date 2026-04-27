@@ -8,7 +8,6 @@ import AssetBreakdown from '../components/AssetBreakdown'
 import DCAHistoryTable from '../components/DCAHistoryTable'
 import AgentInput from '../components/AgentInput'
 import AgentPanel from '../components/AgentPanel'
-import SignOutButton from '../components/SignOutButton'
 import { useAgentChat } from '../hooks/useAgentChat'
 
 interface DashboardErrors {
@@ -49,7 +48,7 @@ interface DashboardProps {
   onSignedOut: () => void
 }
 
-export default function Dashboard({ onSignedOut }: DashboardProps) {
+export default function Dashboard({ onSignedOut: _onSignedOut }: DashboardProps) {
   const [state, setState] = useState<DashboardState>({
     summary: null,
     snapshots: [],
@@ -119,7 +118,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps) {
       <main className="flex-1 min-w-0">
         {/* Agent input pill — top right */}
         <div className="px-6 pt-6">
-          <div className="max-w-7xl mx-auto flex items-center justify-end gap-4">
+          <div className="max-w-7xl mx-auto flex items-center justify-end">
             <div className="border border-surface-border rounded-md px-3 py-1.5 hover:border-kraken/50 transition-colors">
               <AgentInput
                 onSubmit={handleAgentSubmit}
@@ -127,7 +126,6 @@ export default function Dashboard({ onSignedOut }: DashboardProps) {
                 panelOpen={panelOpen}
               />
             </div>
-            <SignOutButton onSignedOut={onSignedOut} />
           </div>
         </div>
 

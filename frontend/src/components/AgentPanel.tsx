@@ -40,7 +40,7 @@ export default function AgentPanel({
   const isEmpty = messages.length === 0 && !thinking
 
   return (
-    <aside className="w-[400px] shrink-0 border-l border-surface-border overflow-y-auto h-screen sticky top-0">
+    <aside className="fixed inset-y-0 right-0 w-[400px] z-50 flex flex-col bg-surface border-l border-surface-border shadow-2xl overflow-y-auto">
       <div className="px-4 pt-4 pb-2 flex items-center justify-between">
         <NewConversationButton onClick={onNewConversation} />
       </div>
