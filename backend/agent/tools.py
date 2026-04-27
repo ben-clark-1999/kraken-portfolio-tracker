@@ -2,8 +2,10 @@
 
 import asyncio
 import logging
+import sys
 import time
 from contextlib import AsyncExitStack
+from pathlib import Path
 
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.tools import load_mcp_tools
@@ -21,10 +23,13 @@ from backend.agent.agent_config import (
 
 logger = logging.getLogger(__name__)
 
+# Project root: backend/agent/tools.py → backend/agent → backend → project root
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 MCP_SERVER_PARAMS = StdioServerParameters(
-    command="backend/.venv/bin/python",
+    command=sys.executable,
     args=["-m", "backend.mcp_server"],
-    cwd="/Users/benclark/Desktop/kraken-portfolio-tracker",
+    cwd=str(_PROJECT_ROOT),
 )
 
 

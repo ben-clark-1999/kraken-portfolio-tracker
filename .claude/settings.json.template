@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "kraken-portfolio": {
+      "command": "<ABSOLUTE_PATH_TO_REPO>/backend/.venv/bin/python",
+      "args": ["-m", "backend.mcp_server"],
+      "cwd": "<ABSOLUTE_PATH_TO_REPO>"
+    }
+  }
+}
