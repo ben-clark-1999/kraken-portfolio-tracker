@@ -1,6 +1,7 @@
 from decimal import Decimal
 from backend.db.supabase_client import get_supabase
 from backend.models.trade import Lot
+from backend.repositories import lots_repo
 from backend.utils.timezone import unix_to_aest, to_iso
 
 
@@ -31,8 +32,6 @@ def upsert_lots(trades: list[dict]) -> str | None:
     """
     if not trades:
         return None
-
-    from backend.repositories import lots_repo
 
     trade_ids = [t["trade_id"] for t in trades]
     existing_ids = lots_repo.get_existing_trade_ids(trade_ids)
@@ -75,5 +74,4 @@ def get_all_lots() -> list[Lot]:
     Thin wrapper kept for backward compatibility with existing call sites
     (router and MCP tool). New code should call lots_repo.get_all() directly.
     """
-    from backend.repositories import lots_repo
     return lots_repo.get_all()
