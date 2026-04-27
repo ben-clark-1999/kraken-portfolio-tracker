@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { useTaxData } from '../hooks/useTaxData'
 import { currentFinancialYear } from '../utils/financialYear'
 import FYAccordion from '../components/tax/FYAccordion'
-import type { FYOverview } from '../types/tax'
+import KrakenActivityRow from '../components/tax/KrakenActivityRow'
+import EntryList from '../components/tax/EntryList'
+import type { FYOverview, TaxEntry, TaxEntryKind } from '../types/tax'
 
 /* ──────────────────────────────────────────────────────────────────────────
  * TaxHub — page shell, four states.
@@ -28,7 +30,14 @@ import type { FYOverview } from '../types/tax'
  * ────────────────────────────────────────────────────────────────────── */
 
 export default function TaxHub(): JSX.Element {
-  const { overview, overviewError, refreshOverview } = useTaxData()
+  const {
+    overview,
+    overviewError,
+    entriesByFY,
+    refreshOverview,
+    loadEntries,
+    deleteEntry,
+  } = useTaxData()
 
   // Expansion state for the FY accordion. Lives at the page level so a
   // future "expand all", URL-driven deep-link, or persistent-state
@@ -60,6 +69,9 @@ export default function TaxHub(): JSX.Element {
         overview={overview}
         expandedFYs={expandedFYs}
         toggleFY={toggleFY}
+        entriesByFY={entriesByFY}
+        loadEntries={loadEntries}
+        deleteEntry={deleteEntry}
       />
     )
   }
@@ -242,13 +254,27 @@ interface HasDataStateProps {
   overview: FYOverview[]
   expandedFYs: Set<string>
   toggleFY: (fy: string) => void
+  entriesByFY: Record<string, Partial<Record<TaxEntryKind, TaxEntry[]>>>
+  loadEntries: (kind: TaxEntryKind, fy: string) => Promise<void>
+  deleteEntry: (kind: TaxEntryKind, id: string, fy: string) => Promise<void>
 }
 
 function HasDataState({
   overview,
   expandedFYs,
   toggleFY,
+  entriesByFY,
+  loadEntries,
+  deleteEntry,
 }: HasDataStateProps): JSX.Element {
+  // Memoise the per-FY overview lookup so renderFYContent can grab the
+  // matching row without rescanning the array on every accordion paint.
+  // (overview is short enough that this is a polish move, not a perf
+  // bottleneck — but FYContent fires the lookup on every render.)
+  const overviewByFY = new Map<string, FYOverview>(
+    overview.map((row) => [row.financial_year, row]),
+  )
+
   return (
     <div className="pt-10 pb-16 flex flex-col gap-10">
       <header className="flex flex-col gap-2.5">
@@ -267,11 +293,121 @@ function HasDataState({
         overview={overview}
         expandedFYs={expandedFYs}
         onToggleFY={toggleFY}
-        renderFYContent={(fy) => (
-          <div className="text-txt-muted px-4 py-6">
-            Sub-sections coming in Task 20 — FY {fy}
-          </div>
-        )}
+        renderFYContent={(fy) => {
+          const row = overviewByFY.get(fy)
+          if (!row) return null
+          return (
+            <FYContent
+              fy={fy}
+              overviewRow={row}
+              entriesByFY={entriesByFY}
+              loadEntries={loadEntries}
+              deleteEntry={deleteEntry}
+            />
+          )
+        }}
+      />
+    </div>
+  )
+}
+
+/* ── FYContent ───────────────────────────────────────────────────────────
+ * Per-FY body — extracted from the inline renderFYContent callback because
+ * we need a hook (useEffect) to fire the three loadEntries() calls on
+ * mount. Inline arrow-function children can't host hooks.
+ *
+ *   • Loads income, tax_paid, deductible entries the first time the
+ *     wrapper mounts for a given FY. The accordion mounts/unmounts the
+ *     body each time it expands, so this is the natural moment to fetch.
+ *   • Renders KrakenActivityRow, then EntryList × 3 in a vertical stack
+ *     with generous gap. The kraken row is intentionally first so the
+ *     read-only reference data settles into the eye before the editable
+ *     ledger lines below it.
+ *   • Callbacks: onAdd/onEdit/onViewAttachment are stubbed for Task 21+;
+ *     onDelete is already real via the hook (with optimistic update).
+ * ──────────────────────────────────────────────────────────────────── */
+
+interface FYContentProps {
+  fy: string
+  overviewRow: FYOverview
+  entriesByFY: Record<string, Partial<Record<TaxEntryKind, TaxEntry[]>>>
+  loadEntries: (kind: TaxEntryKind, fy: string) => Promise<void>
+  deleteEntry: (kind: TaxEntryKind, id: string, fy: string) => Promise<void>
+}
+
+function FYContent({
+  fy,
+  overviewRow,
+  entriesByFY,
+  loadEntries,
+  deleteEntry,
+}: FYContentProps): JSX.Element {
+  // Fire the three loads on mount. We don't await them; the EntryList
+  // already renders its loading skeleton against `entries === undefined`.
+  // Errors are swallowed at this layer for now — Task 22+ wires toasts.
+  useEffect(() => {
+    void loadEntries('income', fy).catch((err) => {
+      console.error('TaxHub: load income failed', err)
+    })
+    void loadEntries('tax_paid', fy).catch((err) => {
+      console.error('TaxHub: load tax_paid failed', err)
+    })
+    void loadEntries('deductible', fy).catch((err) => {
+      console.error('TaxHub: load deductible failed', err)
+    })
+  }, [fy, loadEntries])
+
+  const bucket = entriesByFY[fy]
+
+  // Stub callbacks. Task 21 wires the EntryDrawer; Task 22 wires the
+  // signed-URL fetch for attachments. onDelete is real today.
+  function onAdd(kind: TaxEntryKind): void {
+    console.log('TaxHub: add', kind, fy)
+  }
+  function onEdit(entry: TaxEntry): void {
+    console.log('TaxHub: edit', entry)
+  }
+  function onDelete(kind: TaxEntryKind, entry: TaxEntry): void {
+    deleteEntry(kind, entry.id, fy).catch((err) => {
+      console.error('TaxHub: delete failed', err)
+    })
+  }
+  function onViewAttachment(id: string): void {
+    console.log('TaxHub: view attachment', id)
+  }
+
+  return (
+    <div className="flex flex-col gap-7">
+      <KrakenActivityRow activity={overviewRow.kraken_activity} />
+
+      <EntryList
+        kind="income"
+        fy={fy}
+        entries={bucket?.income}
+        onAdd={() => onAdd('income')}
+        onEdit={onEdit}
+        onDelete={(entry) => onDelete('income', entry)}
+        onViewAttachment={onViewAttachment}
+      />
+
+      <EntryList
+        kind="tax_paid"
+        fy={fy}
+        entries={bucket?.tax_paid}
+        onAdd={() => onAdd('tax_paid')}
+        onEdit={onEdit}
+        onDelete={(entry) => onDelete('tax_paid', entry)}
+        onViewAttachment={onViewAttachment}
+      />
+
+      <EntryList
+        kind="deductible"
+        fy={fy}
+        entries={bucket?.deductible}
+        onAdd={() => onAdd('deductible')}
+        onEdit={onEdit}
+        onDelete={(entry) => onDelete('deductible', entry)}
+        onViewAttachment={onViewAttachment}
       />
     </div>
   )
