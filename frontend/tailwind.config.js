@@ -25,14 +25,21 @@ export default {
           dark: '#6248E5',
           subtle: '#7B61FF1A', // 10% opacity for tinted backgrounds
         },
+        // Chart accent — teal/cyan used by ChartCard and AssetBreakdown
+        accent: {
+          DEFAULT: '#5EEAD4',
+          glow: 'rgba(94, 234, 212, 0.35)',
+          subtle: 'rgba(94, 234, 212, 0.12)',
+        },
         // Semantic P&L — always paired with +/- prefix
         profit: '#22C55E',
         loss: '#EF4444',
         // Asset identity colors
         asset: {
-          eth: '#627EEA',
-          sol: '#9945FF',
-          ada: '#06B6D4',
+          eth: '#5EEAD4',  // teal — flagship, matches chart total accent
+          sol: '#7B61FF',  // kraken violet — second voice
+          ada: '#60A5FA',  // blue
+          link: '#22D3EE', // teal-2 (cyan)
         },
         // Purple-tinted neutral surfaces (brand cohesion)
         surface: {
