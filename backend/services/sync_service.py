@@ -50,7 +50,11 @@ def upsert_lots(trades: list[dict]) -> str | None:
 
 
 def record_sync(last_trade_id: str | None, status: str, error_message: str | None = None) -> None:
-    """Writes a row to sync_log."""
+    """Writes a row to sync_log.
+
+    Thin wrapper kept for backward compatibility with existing call sites
+    (router and MCP tool). New code should call sync_log_repo.insert() directly.
+    """
     sync_log_repo.insert(
         last_trade_id=last_trade_id,
         status=status,
