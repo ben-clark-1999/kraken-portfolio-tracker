@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, JSX } from 'react'
 import {
   Loader2,
-  Paperclip,
   Receipt,
   Tag,
   TrendingUp,
@@ -11,6 +10,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import { useToast } from '../Toast'
+import { deleteAttachment } from '../../api/tax'
 import {
   DEDUCTIBLE_TYPES,
   INCOME_TYPES,
@@ -18,10 +18,13 @@ import {
   TYPE_LABELS,
 } from '../../types/tax'
 import type {
+  TaxAttachment,
   TaxEntry,
   TaxEntryCreate,
   TaxEntryKind,
 } from '../../types/tax'
+import FileDropZone from './FileDropZone'
+import AttachmentChip from './AttachmentChip'
 
 /* ──────────────────────────────────────────────────────────────────────────
  * EntryDrawer — the create/edit instrument for the Tax Hub.
@@ -85,6 +88,8 @@ export interface EntryDrawerProps {
     isEdit: boolean,
     id?: string,
   ) => Promise<void>
+  /** Opens an attachment in a new tab (parent owns signed-URL fetch). */
+  onViewAttachment?: (id: string) => void
 }
 
 /* ── Per-kind config ──────────────────────────────────────────────────────
@@ -228,6 +233,7 @@ export default function EntryDrawer({
   initialEntry,
   onClose,
   onSave,
+  onViewAttachment,
 }: EntryDrawerProps): JSX.Element | null {
   const { showToast } = useToast()
 
@@ -268,6 +274,18 @@ export default function EntryDrawer({
   const [submitAttempted, setSubmitAttempted] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  /* Attachments — collected as the user uploads via FileDropZone. In edit
+     mode we hydrate from the entry's existing attachments so they appear
+     as chips beneath the dropzone; in create mode we start empty. The
+     "initial set" (anything bound to a saved entry) is captured below
+     for the close-with-pending-uploads confirm dialog. */
+  const [attachments, setAttachments] = useState<TaxAttachment[]>(
+    () => initialEntry?.attachments ?? [],
+  )
+  const initialAttachmentIdsRef = useRef<Set<string>>(
+    new Set(initialEntry?.attachments?.map((a) => a.id) ?? []),
+  )
+
   /* Reset / hydrate the form whenever the drawer opens or the active kind
      changes. This is the single point where form state is synchronised
      with props — keeps the rest of the component's state-flow simple. */
@@ -289,7 +307,47 @@ export default function EntryDrawer({
     })
     setSubmitAttempted(false)
     setSaving(false)
+    // Reset attachment state on every open / context change. Edit mode
+    // hydrates from the entry; create mode starts empty.
+    const hydrated = mode === 'edit' && initialEntry ? initialEntry.attachments : []
+    setAttachments(hydrated)
+    initialAttachmentIdsRef.current = new Set(hydrated.map((a) => a.id))
   }, [open, mode, initialEntry, effectiveKind])
+
+  /* Pending-uploads-aware close. Confirms a discard if the user has new
+     uploads that would be orphaned. New = present in `attachments` but
+     NOT in `initialAttachmentIdsRef` (which captures whatever was bound
+     to the saved entry on open). On confirm we delete the orphans
+     server-side so the user's storage stays clean. */
+  function attemptClose(): void {
+    if (saving) return
+    const pending = attachments.filter(
+      (a) => !initialAttachmentIdsRef.current.has(a.id),
+    )
+    if (pending.length === 0) {
+      onClose()
+      return
+    }
+    const noun = pending.length === 1 ? 'file' : 'files'
+    const ok = window.confirm(
+      `Discard ${pending.length} uploaded ${noun}? They'll be removed from storage.`,
+    )
+    if (!ok) return
+    // Fire-and-forget delete. Errors are surfaced as toasts but never
+    // block the close — the user has decided to abandon them.
+    void Promise.allSettled(pending.map((a) => deleteAttachment(a.id))).then(
+      (results) => {
+        const failed = results.filter((r) => r.status === 'rejected')
+        if (failed.length > 0) {
+          showToast({
+            variant: 'error',
+            message: `${failed.length} of ${pending.length} ${noun} couldn't be deleted from storage.`,
+          })
+        }
+      },
+    )
+    onClose()
+  }
 
   /* Escape closes the drawer (unless mid-save — let the save resolve so
      toast positioning matches the user's expectation). */
@@ -298,12 +356,13 @@ export default function EntryDrawer({
     function onKey(ev: KeyboardEvent): void {
       if (ev.key === 'Escape' && !saving) {
         ev.stopPropagation()
-        onClose()
+        attemptClose()
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose, saving])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, saving, attachments])
 
   /* Body-scroll lock while the drawer is open. The dashboard underneath
      can be tall, and the drawer itself scrolls — locking the body keeps
@@ -387,6 +446,15 @@ export default function EntryDrawer({
       date: values.date,
       type: values.type,
       notes: values.notes.trim() ? values.notes.trim() : null,
+      // Only include attachment_ids on create — edit mode keeps the
+      // existing bindings server-side (Task 22's add/remove flow for
+      // edit is deferred). On create we forward every uploaded id so
+      // tax_service rebinds them from PENDING to the new entry.
+      ...(isEdit
+        ? {}
+        : {
+            attachment_ids: attachments.map((a) => a.id),
+          }),
     }
 
     setSaving(true)
@@ -413,7 +481,7 @@ export default function EntryDrawer({
 
   function handleBackdropClick(): void {
     if (saving) return
-    onClose()
+    attemptClose()
   }
 
   /* ── Render branches ─────────────────────────────────────────────────── */
@@ -467,7 +535,7 @@ export default function EntryDrawer({
           mode={mode}
           actionLabel={headerActionLabel}
           kindLabel={headerKindLabel}
-          onClose={onClose}
+          onClose={attemptClose}
           disabled={saving}
         />
 
@@ -485,7 +553,34 @@ export default function EntryDrawer({
               isEdit={isEdit}
               saving={saving}
               onSubmit={handleSubmit}
-              onCancel={onClose}
+              onCancel={attemptClose}
+              attachments={attachments}
+              onAttachmentUploaded={(a) =>
+                setAttachments((prev) =>
+                  prev.some((x) => x.id === a.id) ? prev : [...prev, a]
+                )
+              }
+              onAttachmentRemove={(id) => {
+                // Optimistic local removal. If the chip is a freshly-
+                // uploaded one (not in the initial set), also DELETE
+                // the row server-side so we don't leak storage.
+                setAttachments((prev) => prev.filter((x) => x.id !== id))
+                if (!initialAttachmentIdsRef.current.has(id)) {
+                  void deleteAttachment(id).catch((err) => {
+                    showToast({
+                      variant: 'error',
+                      message:
+                        err instanceof Error
+                          ? err.message
+                          : "Couldn't remove the file from storage.",
+                    })
+                  })
+                }
+              }}
+              onAttachmentError={(message) =>
+                showToast({ variant: 'error', message })
+              }
+              onAttachmentView={onViewAttachment}
             />
           ) : null}
         </div>
@@ -705,6 +800,11 @@ interface EntryFormProps {
   saving: boolean
   onSubmit: (ev: FormEvent<HTMLFormElement>) => void
   onCancel: () => void
+  attachments: TaxAttachment[]
+  onAttachmentUploaded: (attachment: TaxAttachment) => void
+  onAttachmentRemove: (id: string) => void
+  onAttachmentError: (message: string) => void
+  onAttachmentView?: (id: string) => void
 }
 
 function EntryForm({
@@ -716,6 +816,11 @@ function EntryForm({
   saving,
   onSubmit,
   onCancel,
+  attachments,
+  onAttachmentUploaded,
+  onAttachmentRemove,
+  onAttachmentError,
+  onAttachmentView,
 }: EntryFormProps): JSX.Element {
   const cfg = KIND_CONFIG[kind]
 
@@ -903,30 +1008,45 @@ function EntryForm({
           />
         </FieldRow>
 
-        {/* Attachments — STUBBED for Task 22. Honest, not apologetic.
-            A hairline pill mirrors the EntryList attachment-chip silhouette
-            so the user reads it as "the same kind of object, not yet
-            interactive". */}
+        {/* Attachments — Task 22 wires the real upload + view flow.
+            FileDropZone owns the upload, AttachmentChip renders one row
+            per uploaded file with an X for removal. The dropzone
+            collapses to a compact "+ Add more" pill when chips are
+            already present so the form's vertical rhythm doesn't
+            balloon mid-flow. */}
         <FieldRow
           id="entry-attachments"
           label="Attachments"
-          eyebrow="Field 06 · Available next release"
+          eyebrow={
+            attachments.length > 0
+              ? `Field 06 · ${attachments.length} attached`
+              : 'Field 06 · Optional'
+          }
         >
-          <div
-            aria-disabled="true"
-            className={[
-              'inline-flex items-center gap-2 px-3 py-2 rounded-md self-start',
-              'border border-dashed border-surface-border/80 bg-surface-raised/10',
-              'text-[12px] tracking-tight text-txt-muted/85',
-              'cursor-not-allowed select-none',
-            ].join(' ')}
-          >
-            <Paperclip
-              aria-hidden="true"
-              strokeWidth={1.75}
-              className="h-3.5 w-3.5 text-txt-muted/70"
+          <div className="flex flex-col gap-2.5">
+            {attachments.length > 0 && (
+              <ul
+                role="list"
+                className="flex flex-wrap gap-2"
+                aria-label="Attached files"
+              >
+                {attachments.map((a) => (
+                  <li key={a.id}>
+                    <AttachmentChip
+                      attachment={a}
+                      onView={() => onAttachmentView?.(a.id)}
+                      onRemove={() => onAttachmentRemove(a.id)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+            <FileDropZone
+              parentKind={kind}
+              compact={attachments.length > 0}
+              onUploaded={onAttachmentUploaded}
+              onError={onAttachmentError}
             />
-            <span>File upload — wired up next release.</span>
           </div>
         </FieldRow>
       </div>

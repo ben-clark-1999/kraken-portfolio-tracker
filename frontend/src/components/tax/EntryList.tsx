@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { MoreHorizontal, Paperclip, Plus, Search } from 'lucide-react'
+import { MoreHorizontal, Plus, Search } from 'lucide-react'
 
 import type { TaxEntry, TaxEntryKind } from '../../types/tax'
 import { TYPE_LABELS } from '../../types/tax'
+import AttachmentChip from './AttachmentChip'
 
 /* ──────────────────────────────────────────────────────────────────────────
  * EntryList — the workhorse list of entries for one kind in one FY.
@@ -599,38 +600,19 @@ function EntryRow({
         </span>
       </span>
 
-      {/* Attachment chips — small, clickable. Quiet by default; tint on
-          hover to confirm they're individually interactive. */}
+      {/* Attachment chips — share the AttachmentChip component with the
+          drawer so the filename, size, and content-type readout is
+          identical across surfaces. EntryList rows don't allow removal
+          (the chip is bound to a persisted entry; deleting it requires
+          a dedicated server-side flow that's deferred). */}
       {entry.attachments.length > 0 && (
-        <span className="flex items-center gap-1 shrink-0">
+        <span className="flex items-center gap-1.5 shrink-0 max-w-[40%]">
           {entry.attachments.map((att) => (
-            <button
+            <AttachmentChip
               key={att.id}
-              type="button"
-              onClick={(ev) => {
-                ev.stopPropagation()
-                onViewAttachment(att.id)
-              }}
-              aria-label={`View attachment ${att.filename}`}
-              title={att.filename}
-              className={[
-                'inline-flex items-center gap-1 px-1.5 py-1 rounded-[5px]',
-                'border border-surface-border/60 bg-transparent',
-                'text-[10.5px] tracking-tight text-txt-muted',
-                'transition-[background-color,border-color,color] duration-150 ease-out',
-                'hover:bg-surface-raised/50 hover:border-kraken/40 hover:text-txt-primary',
-                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kraken',
-              ].join(' ')}
-            >
-              <Paperclip
-                aria-hidden="true"
-                strokeWidth={1.75}
-                className="h-3 w-3"
-              />
-              <span data-numeric className="font-mono leading-none">
-                1
-              </span>
-            </button>
+              attachment={att}
+              onView={() => onViewAttachment(att.id)}
+            />
           ))}
         </span>
       )}

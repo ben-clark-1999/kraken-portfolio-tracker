@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { useTaxData } from '../hooks/useTaxData'
 import { currentFinancialYear } from '../utils/financialYear'
@@ -6,6 +6,8 @@ import FYAccordion from '../components/tax/FYAccordion'
 import KrakenActivityRow from '../components/tax/KrakenActivityRow'
 import EntryList from '../components/tax/EntryList'
 import EntryDrawer from '../components/tax/EntryDrawer'
+import { useToast } from '../components/Toast'
+import { fetchAttachmentUrl } from '../api/tax'
 import type { FYOverview, TaxEntry, TaxEntryCreate, TaxEntryKind } from '../types/tax'
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -41,6 +43,7 @@ export default function TaxHub(): JSX.Element {
     updateEntry,
     deleteEntry,
   } = useTaxData()
+  const { showToast } = useToast()
 
   // Expansion state for the FY accordion. Lives at the page level so a
   // future "expand all", URL-driven deep-link, or persistent-state
@@ -95,6 +98,26 @@ export default function TaxHub(): JSX.Element {
     }
   }
 
+  // Attachment view — fetches a signed URL on demand and opens it in a
+  // new tab. Wrapped with useCallback so the prop reference stays
+  // stable across renders (the drawer's effects depend on it).
+  const handleViewAttachment = useCallback(
+    async (attachmentId: string): Promise<void> => {
+      try {
+        const { url } = await fetchAttachmentUrl(attachmentId)
+        // _blank + noopener for the same security posture as any
+        // outbound link the dashboard surfaces.
+        window.open(url, '_blank', 'noopener,noreferrer')
+      } catch (e) {
+        showToast({
+          variant: 'error',
+          message: e instanceof Error ? e.message : String(e),
+        })
+      }
+    },
+    [showToast],
+  )
+
   let body: JSX.Element
   if (overviewError) {
     body = <ErrorState message={overviewError} onRetry={() => void refreshOverview()} />
@@ -113,6 +136,7 @@ export default function TaxHub(): JSX.Element {
         deleteEntry={deleteEntry}
         onAdd={handleAdd}
         onEdit={handleEdit}
+        onViewAttachment={handleViewAttachment}
       />
     )
   }
@@ -128,6 +152,7 @@ export default function TaxHub(): JSX.Element {
         initialEntry={drawer.initialEntry}
         onClose={handleCloseDrawer}
         onSave={handleSave}
+        onViewAttachment={handleViewAttachment}
       />
     </main>
   )
@@ -311,6 +336,7 @@ interface HasDataStateProps {
   deleteEntry: (kind: TaxEntryKind, id: string, fy: string) => Promise<void>
   onAdd: (kind: TaxEntryKind) => void
   onEdit: (kind: TaxEntryKind, entry: TaxEntry) => void
+  onViewAttachment: (id: string) => void
 }
 
 function HasDataState({
@@ -322,6 +348,7 @@ function HasDataState({
   deleteEntry,
   onAdd,
   onEdit,
+  onViewAttachment,
 }: HasDataStateProps): JSX.Element {
   // Memoise the per-FY overview lookup so renderFYContent can grab the
   // matching row without rescanning the array on every accordion paint.
@@ -361,6 +388,7 @@ function HasDataState({
               deleteEntry={deleteEntry}
               onAdd={onAdd}
               onEdit={onEdit}
+              onViewAttachment={onViewAttachment}
             />
           )
         }}
@@ -393,6 +421,7 @@ interface FYContentProps {
   deleteEntry: (kind: TaxEntryKind, id: string, fy: string) => Promise<void>
   onAdd: (kind: TaxEntryKind) => void
   onEdit: (kind: TaxEntryKind, entry: TaxEntry) => void
+  onViewAttachment: (id: string) => void
 }
 
 function FYContent({
@@ -403,6 +432,7 @@ function FYContent({
   deleteEntry,
   onAdd,
   onEdit,
+  onViewAttachment,
 }: FYContentProps): JSX.Element {
   // Fire the three loads on mount. We don't await them; the EntryList
   // already renders its loading skeleton against `entries === undefined`.
@@ -422,15 +452,12 @@ function FYContent({
   const bucket = entriesByFY[fy]
 
   // onDelete stays local (it's the only path that needs `fy` to scope
-  // the optimistic-update bucket). onAdd/onEdit forward up to TaxHub
-  // which owns the EntryDrawer state. Task 22 wires onViewAttachment.
+  // the optimistic-update bucket). onAdd/onEdit/onViewAttachment all
+  // forward up to TaxHub which owns the drawer + signed-URL flow.
   function onDelete(kind: TaxEntryKind, entry: TaxEntry): void {
     deleteEntry(kind, entry.id, fy).catch((err) => {
       console.error('TaxHub: delete failed', err)
     })
-  }
-  function onViewAttachment(id: string): void {
-    console.log('TaxHub: view attachment', id)
   }
 
   return (
