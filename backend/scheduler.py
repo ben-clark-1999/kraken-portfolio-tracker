@@ -3,7 +3,7 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from backend.services import portfolio_service, snapshot_service
+from backend.services import portfolio_service, snapshot_service, storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +32,29 @@ async def _hourly_snapshot() -> None:
         logger.exception("Hourly snapshot failed")
 
 
+def _do_pending_sweep() -> None:
+    """Synchronous pending-attachment sweep."""
+    swept = storage_service.sweep_pending_attachments(older_than_hours=24)
+    if swept > 0:
+        logger.info("Pending-attachment sweep removed %d orphans", swept)
+
+
+async def _pending_sweep_job() -> None:
+    """6-hourly sweep for orphan tax attachments."""
+    try:
+        await asyncio.to_thread(_do_pending_sweep)
+    except Exception:
+        logger.exception("Pending-attachment sweep failed")
+
+
 def start_scheduler() -> None:
     scheduler.add_job(_hourly_snapshot, "interval", hours=1, id="hourly_snapshot")
+    scheduler.add_job(
+        _pending_sweep_job,
+        "interval",
+        hours=6,
+        id="pending_sweep",
+    )
     scheduler.start()
 
 
