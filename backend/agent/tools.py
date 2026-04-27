@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sys
+import time
 from contextlib import AsyncExitStack
 from pathlib import Path
 
@@ -87,14 +88,34 @@ class MCPToolManager:
 
 
 async def invoke_tool_with_timeout(tool: BaseTool, args: dict) -> str:
-    """Invoke a tool with a timeout. Returns error string on failure."""
+    """Invoke a tool with a timeout. Returns sanitized error string on failure.
+
+    Real exception detail logged server-side; tool message returned to the
+    LLM is sanitized so internal text doesn't leak into the agent's reasoning
+    context (or, downstream, into the user-facing answer).
+    """
+    start = time.time()
     try:
         result = await asyncio.wait_for(
             tool.ainvoke(args),
             timeout=TOOL_TIMEOUT_SECONDS,
         )
+        duration_ms = int((time.time() - start) * 1000)
+        logger.info(
+            "[Tool] name=%s duration_ms=%d success=true", tool.name, duration_ms,
+        )
         return str(result)
     except asyncio.TimeoutError:
-        return f"Error: Tool {tool.name} timed out after {TOOL_TIMEOUT_SECONDS}s"
-    except Exception as e:
-        return f"Error: Tool {tool.name} failed — {e}"
+        duration_ms = int((time.time() - start) * 1000)
+        logger.warning(
+            "[Tool] name=%s duration_ms=%d success=false reason=timeout",
+            tool.name, duration_ms,
+        )
+        return f"Tool {tool.name} timed out after {TOOL_TIMEOUT_SECONDS}s. Please retry."
+    except Exception:
+        duration_ms = int((time.time() - start) * 1000)
+        logger.exception(
+            "[Tool] name=%s duration_ms=%d success=false reason=exception",
+            tool.name, duration_ms,
+        )
+        return f"Tool {tool.name} failed with a temporary upstream error. Please retry."
