@@ -7,7 +7,7 @@ service layer.
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TaxEntryKind(str, Enum):
@@ -69,6 +69,13 @@ class TaxEntryCreate(BaseModel):
     notes: str | None = Field(default=None, max_length=4000)
     attachment_ids: list[str] = []
 
+    @field_validator('description', mode='before')
+    @classmethod
+    def _strip_description(cls, v):
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
 
 class TaxEntryUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=1, max_length=200)
@@ -76,6 +83,13 @@ class TaxEntryUpdate(BaseModel):
     date: str | None = None
     type: str | None = None
     notes: str | None = Field(default=None, max_length=4000)
+
+    @field_validator('description', mode='before')
+    @classmethod
+    def _strip_description(cls, v):
+        if isinstance(v, str):
+            return v.strip()
+        return v
 
 
 class KrakenAssetActivity(BaseModel):

@@ -12,7 +12,7 @@ The service normalizes to a single `date` field in the API response
 (TaxEntry).
 """
 
-from datetime import date as date_t, datetime
+from datetime import date as date_t
 
 from backend.db.supabase_client import get_supabase
 from backend.models.tax import (
@@ -94,7 +94,7 @@ def create_entry(kind: TaxEntryKind, payload: TaxEntryCreate) -> TaxEntry:
     table = _KIND_TABLE[kind]
 
     insert_row = {
-        "description": payload.description.strip(),
+        "description": payload.description,
         "amount_aud": payload.amount_aud,
         date_col: payload.date,
         "type": payload.type,
@@ -118,8 +118,8 @@ def _get_attachments_for(parent_kind: TaxEntryKind, ids: list[str]) -> dict[str,
     result = (
         db.table("tax_attachments")
         .select("*")
-        .in_("parent_id", ids)
         .eq("parent_kind", parent_kind.value)
+        .in_("parent_id", ids)
         .execute()
     )
     grouped: dict[str, list[TaxAttachment]] = {}
@@ -171,12 +171,13 @@ def update_entry(kind: TaxEntryKind, id: str, patch: TaxEntryUpdate) -> TaxEntry
     if patch.type is not None:
         _validate_type(kind, patch.type)
 
-    # Need existing row to know whether date changed (for FY recompute)
+    # Fetch existing row so we can short-circuit on a no-op patch and
+    # raise EntryNotFoundError if the row doesn't exist.
     existing = get_entry(kind, id)
 
     update_row: dict = {}
     if patch.description is not None:
-        update_row["description"] = patch.description.strip()
+        update_row["description"] = patch.description
     if patch.amount_aud is not None:
         update_row["amount_aud"] = patch.amount_aud
     if patch.type is not None:
@@ -190,8 +191,6 @@ def update_entry(kind: TaxEntryKind, id: str, patch: TaxEntryUpdate) -> TaxEntry
 
     if not update_row:
         return existing  # no-op patch
-
-    update_row["updated_at"] = datetime.now().isoformat()
 
     table = _KIND_TABLE[kind]
     db = get_supabase()

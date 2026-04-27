@@ -1,4 +1,3 @@
-from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,9 +7,20 @@ from backend.models.tax import TaxEntryCreate, TaxEntryKind, TaxEntryUpdate
 
 @pytest.fixture
 def mock_supabase():
-    """Mock the supabase client used by tax_service."""
+    """Mock the supabase client. Each table gets an isolated MagicMock so
+    .select().eq().execute() chains don't interfere across tables."""
     with patch("backend.services.tax_service.get_supabase") as m:
         client = MagicMock()
+        table_mocks: dict[str, MagicMock] = {}
+
+        def _table(name: str) -> MagicMock:
+            if name not in table_mocks:
+                table_mocks[name] = MagicMock(name=f"table[{name}]")
+            return table_mocks[name]
+
+        client.table.side_effect = _table
+        # Expose the per-table mocks via a helper so tests can configure them
+        client._tables = table_mocks
         m.return_value = client
         yield client
 
@@ -38,7 +48,8 @@ def test_create_deductible_inserts_with_computed_fy(mock_supabase):
         "created_at": "2026-03-15T00:00:00+11:00",
         "updated_at": "2026-03-15T00:00:00+11:00",
     }
-    mock_supabase.table.return_value.insert.return_value.execute.return_value.data = [inserted_row]
+    deductibles = mock_supabase.table("tax_deductibles")
+    deductibles.insert.return_value.execute.return_value.data = [inserted_row]
 
     result = tax_service.create_entry(TaxEntryKind.DEDUCTIBLE, payload)
 
@@ -46,7 +57,7 @@ def test_create_deductible_inserts_with_computed_fy(mock_supabase):
     assert result.financial_year == "2025-26"
     assert result.attachments == []
 
-    insert_call = mock_supabase.table.return_value.insert.call_args[0][0]
+    insert_call = deductibles.insert.call_args[0][0]
     assert insert_call["financial_year"] == "2025-26"
     assert insert_call["date_paid"] == "2026-03-15"
     assert insert_call["type"] == "software"
@@ -74,13 +85,14 @@ def test_create_income_uses_date_received_column(mock_supabase):
         "created_at": "2026-03-28T00:00:00+11:00",
         "updated_at": "2026-03-28T00:00:00+11:00",
     }
-    mock_supabase.table.return_value.insert.return_value.execute.return_value.data = [inserted_row]
+    income = mock_supabase.table("tax_income")
+    income.insert.return_value.execute.return_value.data = [inserted_row]
 
     result = tax_service.create_entry(TaxEntryKind.INCOME, payload)
 
     assert result.date == "2026-03-28"
 
-    insert_call = mock_supabase.table.return_value.insert.call_args[0][0]
+    insert_call = income.insert.call_args[0][0]
     assert "date_received" in insert_call
     assert "date_paid" not in insert_call
 
@@ -109,17 +121,19 @@ def test_get_entries_filters_by_fy(mock_supabase):
          "type": "software", "notes": None, "financial_year": "2025-26",
          "created_at": "2026-03-01T00:00:00+11:00", "updated_at": "2026-03-01T00:00:00+11:00"},
     ]
-    chain = mock_supabase.table.return_value.select.return_value.eq.return_value.order.return_value
+    deductibles = mock_supabase.table("tax_deductibles")
+    chain = deductibles.select.return_value.eq.return_value.order.return_value
     chain.execute.return_value.data = rows
 
-    # No attachments query path (Task 8 will add it). For now return [] always.
-    mock_supabase.table.return_value.select.return_value.in_.return_value.execute.return_value.data = []
+    # Attachments query path returns empty list (no attachments yet).
+    attachments = mock_supabase.table("tax_attachments")
+    attachments.select.return_value.eq.return_value.in_.return_value.execute.return_value.data = []
 
     result = tax_service.get_entries(TaxEntryKind.DEDUCTIBLE, "2025-26")
 
     assert len(result) == 1
     assert result[0].financial_year == "2025-26"
-    mock_supabase.table.return_value.select.return_value.eq.assert_called_with("financial_year", "2025-26")
+    deductibles.select.return_value.eq.assert_called_with("financial_year", "2025-26")
 
 
 def test_get_entry_returns_single(mock_supabase):
@@ -128,9 +142,12 @@ def test_get_entry_returns_single(mock_supabase):
     row = {"id": "abc", "description": "X", "amount_aud": 5.0, "date_paid": "2026-03-01",
            "type": "software", "notes": None, "financial_year": "2025-26",
            "created_at": "2026-03-01T00:00:00+11:00", "updated_at": "2026-03-01T00:00:00+11:00"}
-    chain = mock_supabase.table.return_value.select.return_value.eq.return_value
+    deductibles = mock_supabase.table("tax_deductibles")
+    chain = deductibles.select.return_value.eq.return_value
     chain.execute.return_value.data = [row]
-    mock_supabase.table.return_value.select.return_value.in_.return_value.execute.return_value.data = []
+
+    attachments = mock_supabase.table("tax_attachments")
+    attachments.select.return_value.eq.return_value.in_.return_value.execute.return_value.data = []
 
     result = tax_service.get_entry(TaxEntryKind.DEDUCTIBLE, "abc")
 
@@ -141,7 +158,8 @@ def test_get_entry_missing_raises(mock_supabase):
     from backend.services import tax_service
     from backend.services.tax_service import EntryNotFoundError
 
-    chain = mock_supabase.table.return_value.select.return_value.eq.return_value
+    deductibles = mock_supabase.table("tax_deductibles")
+    chain = deductibles.select.return_value.eq.return_value
     chain.execute.return_value.data = []
 
     with pytest.raises(EntryNotFoundError):
@@ -159,18 +177,21 @@ def test_update_entry_recomputes_fy_when_date_changes(mock_supabase):
     # The .update().eq().execute() returns the patched row in FY 2025-26
     patched = {**existing, "date_paid": "2025-09-01", "financial_year": "2025-26"}
 
-    select_chain = mock_supabase.table.return_value.select.return_value.eq.return_value
+    deductibles = mock_supabase.table("tax_deductibles")
+    select_chain = deductibles.select.return_value.eq.return_value
     select_chain.execute.return_value.data = [existing]
-    mock_supabase.table.return_value.select.return_value.in_.return_value.execute.return_value.data = []
 
-    update_chain = mock_supabase.table.return_value.update.return_value.eq.return_value
+    attachments = mock_supabase.table("tax_attachments")
+    attachments.select.return_value.eq.return_value.in_.return_value.execute.return_value.data = []
+
+    update_chain = deductibles.update.return_value.eq.return_value
     update_chain.execute.return_value.data = [patched]
 
     patch = TaxEntryUpdate(date="2025-09-01")
     result = tax_service.update_entry(TaxEntryKind.DEDUCTIBLE, "abc", patch)
 
     assert result.financial_year == "2025-26"
-    update_call = mock_supabase.table.return_value.update.call_args[0][0]
+    update_call = deductibles.update.call_args[0][0]
     assert update_call["date_paid"] == "2025-09-01"
     assert update_call["financial_year"] == "2025-26"
 
@@ -178,12 +199,10 @@ def test_update_entry_recomputes_fy_when_date_changes(mock_supabase):
 def test_delete_entry_calls_delete(mock_supabase):
     from backend.services import tax_service
 
-    delete_chain = mock_supabase.table.return_value.delete.return_value.eq.return_value
+    deductibles = mock_supabase.table("tax_deductibles")
+    delete_chain = deductibles.delete.return_value.eq.return_value
     delete_chain.execute.return_value.data = [{"id": "abc"}]
-
-    # No attachments yet (cascade tested in Task 8)
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
 
     tax_service.delete_entry(TaxEntryKind.DEDUCTIBLE, "abc")
 
-    mock_supabase.table.return_value.delete.return_value.eq.assert_called_with("id", "abc")
+    deductibles.delete.return_value.eq.assert_called_with("id", "abc")
