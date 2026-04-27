@@ -36,7 +36,16 @@ def save_snapshot(summary: PortfolioSummary, schema: str = "public") -> None:
 get_snapshots = snapshots_repo.get_all
 get_nearest_snapshot = snapshots_repo.get_nearest
 get_oldest_snapshot = snapshots_repo.get_oldest
-clear_snapshots = snapshots_repo.clear
+
+
+# clear_snapshots is a thin wrapper (not a bare alias) so that the destructive
+# operation is surfaced in ops logs. The read-only aliases above don't warrant
+# per-call logging; this one does.
+def clear_snapshots(schema: str = "public") -> int:
+    """Delete all snapshots in the schema. Destructive."""
+    count = snapshots_repo.clear(schema=schema)
+    logger.warning("Cleared %d snapshots from schema=%s", count, schema)
+    return count
 
 
 def backfill_from_ledger(schema: str = "public") -> int:
@@ -109,6 +118,8 @@ def backfill_from_ledger(schema: str = "public") -> int:
         filled[ds] = dict(prev)
         current += timedelta(days=1)
 
+    logger.info("Backfill: filled timeline from %s to %s (%d days)", start, yesterday, len(filled))
+
     # 4. Fetch daily OHLC prices for each tracked asset
     all_assets: set[str] = set()
     for balances in filled.values():
@@ -118,15 +129,27 @@ def backfill_from_ledger(schema: str = "public") -> int:
     for asset in sorted(all_assets):
         pair = kraken_service.ASSET_MAP.get(asset, {}).get("pair")
         if not pair:
+            logger.warning("Backfill: no trading pair configured for %s — skipping", asset)
             continue
         try:
-            ohlc[asset] = kraken_service.get_ohlc_daily(pair)
+            prices = kraken_service.get_ohlc_daily(pair)
+            ohlc[asset] = prices
+            if prices:
+                price_dates = sorted(prices.keys())
+                logger.info(
+                    "Backfill: OHLC %s (%s): %d candles, %s to %s",
+                    asset, pair, len(prices), price_dates[0], price_dates[-1],
+                )
+            else:
+                logger.warning("Backfill: OHLC %s (%s): empty response", asset, pair)
         except kraken_service.KrakenServiceError as e:
             logger.warning("Backfill: OHLC %s (%s) failed: %s", asset, pair, e)
             ohlc[asset] = {}
 
     # 5. Skip dates that already have snapshots
     existing = snapshots_repo.get_existing_dates(schema=schema)
+    if existing:
+        logger.info("Backfill: %d dates already have snapshots — will skip those", len(existing))
     count = 0
     skipped_existing = 0
     skipped_no_price = 0
