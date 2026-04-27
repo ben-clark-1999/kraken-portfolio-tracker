@@ -14,6 +14,8 @@ The service normalizes to a single `date` field in the API response
 
 from collections import defaultdict
 from datetime import date as date_t
+from datetime import datetime
+from decimal import Decimal
 
 from backend.db.supabase_client import get_supabase
 from backend.models.tax import (
@@ -29,6 +31,7 @@ from backend.models.tax import (
     TaxEntryUpdate,
     TaxPaidType,
 )
+from backend.services import kraken_service, sync_service
 from backend.utils.financial_year import financial_year_from
 
 
@@ -266,5 +269,44 @@ def get_overview() -> list[FYOverview]:
 
 
 def get_kraken_activity_by_fy() -> dict[str, dict]:
-    """Stub — implementation lands in Task 6."""
-    return {}
+    """Group Kraken lots by financial year, summing AUD spent and buy counts.
+
+    Reads existing lots from sync_service. Current value is computed using
+    fresh ticker prices. Excludes nothing — every lot counts as a buy in
+    the FY it was acquired.
+    """
+    lots = sync_service.get_all_lots()
+    if not lots:
+        return {}
+
+    prices = kraken_service.get_ticker_prices(list({lot.asset for lot in lots}))
+
+    by_fy: dict[str, dict] = {}
+    for lot in lots:
+        acquired_dt = datetime.fromisoformat(lot.acquired_at)
+        fy = financial_year_from(acquired_dt.date())
+
+        bucket = by_fy.setdefault(fy, {
+            "total_aud_invested": 0.0,
+            "total_buys": 0,
+            "per_asset": {},
+        })
+        bucket["total_aud_invested"] += float(lot.cost_aud)
+        bucket["total_buys"] += 1
+
+        asset_bucket = bucket["per_asset"].setdefault(lot.asset, {
+            "aud_spent": 0.0,
+            "buy_count": 0,
+            "current_value_aud": 0.0,
+        })
+        asset_bucket["aud_spent"] += float(lot.cost_aud)
+        asset_bucket["buy_count"] += 1
+
+    # Fill current_value_aud from remaining_quantity * current price
+    for lot in lots:
+        fy = financial_year_from(datetime.fromisoformat(lot.acquired_at).date())
+        price = prices.get(lot.asset, Decimal("0"))
+        contribution = float(Decimal(str(lot.remaining_quantity)) * price)
+        by_fy[fy]["per_asset"][lot.asset]["current_value_aud"] += contribution
+
+    return by_fy

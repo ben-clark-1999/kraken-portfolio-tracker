@@ -259,3 +259,48 @@ def test_get_overview_returns_empty_when_no_data(mock_supabase):
         result = tax_service.get_overview()
 
     assert result == []
+
+
+def test_get_kraken_activity_groups_lots_by_fy(mock_supabase):
+    from decimal import Decimal
+    from backend.services import tax_service
+
+    fake_lots = [
+        # FY 2025-26 (Jul 2025 onward)
+        MagicMock(asset="ETH", acquired_at="2026-03-15T10:00:00+11:00",
+                  cost_aud=Decimal("500"), remaining_quantity=Decimal("0.1")),
+        MagicMock(asset="ETH", acquired_at="2026-03-22T10:00:00+11:00",
+                  cost_aud=Decimal("520"), remaining_quantity=Decimal("0.1")),
+        MagicMock(asset="SOL", acquired_at="2026-03-15T10:00:00+11:00",
+                  cost_aud=Decimal("200"), remaining_quantity=Decimal("1.0")),
+        # FY 2024-25
+        MagicMock(asset="ETH", acquired_at="2025-03-15T10:00:00+11:00",
+                  cost_aud=Decimal("400"), remaining_quantity=Decimal("0.1")),
+    ]
+
+    with patch("backend.services.tax_service.sync_service.get_all_lots") as lots_mock, \
+         patch("backend.services.tax_service.kraken_service.get_ticker_prices") as prices_mock:
+        lots_mock.return_value = fake_lots
+        prices_mock.return_value = {"ETH": Decimal("5000"), "SOL": Decimal("250")}
+
+        result = tax_service.get_kraken_activity_by_fy()
+
+    assert "2025-26" in result
+    assert "2024-25" in result
+    assert result["2025-26"]["total_aud_invested"] == 1220.0  # 500 + 520 + 200
+    assert result["2025-26"]["total_buys"] == 3
+    assert result["2025-26"]["per_asset"]["ETH"]["aud_spent"] == 1020.0
+    assert result["2025-26"]["per_asset"]["ETH"]["buy_count"] == 2
+    assert result["2025-26"]["per_asset"]["ETH"]["current_value_aud"] == 1000.0  # 0.2 * 5000
+
+
+def test_get_kraken_activity_empty_when_no_lots(mock_supabase):
+    from backend.services import tax_service
+
+    with patch("backend.services.tax_service.sync_service.get_all_lots") as lots_mock, \
+         patch("backend.services.tax_service.kraken_service.get_ticker_prices") as prices_mock:
+        lots_mock.return_value = []
+        prices_mock.return_value = {}
+        result = tax_service.get_kraken_activity_by_fy()
+
+    assert result == {}
