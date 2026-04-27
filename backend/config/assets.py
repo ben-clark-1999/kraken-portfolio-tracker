@@ -7,7 +7,7 @@ LEDGER_ASSET_TO_DISPLAY. BALANCE_KEY_TO_DISPLAY auto-derives.
 # Display name → spot/staked/bonded balance keys + AUD trading pair
 ASSET_MAP: dict[str, dict] = {
     "ETH": {
-        "keys": ["XETH", "ETH", "ETH.B", "ETH.S", "ETH2", "ETH2.S", "ETH.F"],
+        "keys": ["XETH", "ETH", "ETH.B", "XETH.B", "ETH.S", "ETH2", "ETH2.S", "ETH.F"],
         "pair": "ETHAUD",
     },
     "SOL": {
