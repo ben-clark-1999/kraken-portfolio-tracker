@@ -3,6 +3,7 @@ import pytest
 from decimal import Decimal
 from unittest.mock import patch
 
+from backend.config.assets import ASSET_MAP
 from backend.models.analytics import (
     AssetPerformance,
     BalanceChange,
@@ -80,18 +81,18 @@ async def test_get_balances_tool(mock_kraken):
 @pytest.mark.asyncio
 @patch("backend.mcp_server.kraken_service")
 async def test_get_prices_tool_default_assets(mock_kraken):
+    all_assets = list(ASSET_MAP.keys())
     mock_kraken.get_ticker_prices.return_value = {
-        "ETH": Decimal("4000.00"),
-        "SOL": Decimal("220.50"),
-        "ADA": Decimal("0.85"),
+        asset: Decimal("1.00") for asset in all_assets
     }
+    mock_kraken.get_ticker_prices.return_value["ETH"] = Decimal("4000.00")
 
     from backend.mcp_server import get_prices
 
     result = await get_prices()
     data = json.loads(result)
 
-    mock_kraken.get_ticker_prices.assert_called_once_with(["ETH", "SOL", "ADA"])
+    mock_kraken.get_ticker_prices.assert_called_once_with(all_assets)
     assert data["ETH"] == "4000.00"
 
 

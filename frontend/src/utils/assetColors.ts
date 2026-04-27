@@ -7,7 +7,7 @@ const COLORS: Record<string, string> = {
   ETH: '#627EEA',
   SOL: '#9945FF',
   ADA: '#06B6D4',
-  LINK: '#2A5ADA',
+  LINK: '#F59E0B',
 }
 
 const FALLBACK = '#5f5a70'

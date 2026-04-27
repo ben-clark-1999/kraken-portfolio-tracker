@@ -13,7 +13,7 @@ from mcp.server.fastmcp import FastMCP
 from datetime import timedelta
 
 from backend.services import kraken_service, portfolio_service, snapshot_service, sync_service
-from backend.services.kraken_service import ASSET_MAP
+from backend.config.assets import ASSET_MAP
 from backend.utils.timezone import now_aest, to_iso
 
 mcp = FastMCP("kraken-portfolio")
