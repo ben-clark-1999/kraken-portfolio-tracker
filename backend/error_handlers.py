@@ -22,6 +22,10 @@ async def handle_uncaught_exception(request: Request, exc: Exception) -> JSONRes
         request.method,
         request.url.path,
     )
+    # X-Request-ID is set explicitly here, not just via RequestIDMiddleware:
+    # BaseHTTPMiddleware.dispatch does NOT run after an uncaught exception,
+    # so the middleware's response.headers assignment never fires on this path.
+    # Without this explicit set the header would be missing on 500 responses.
     return JSONResponse(
         status_code=500,
         content={
