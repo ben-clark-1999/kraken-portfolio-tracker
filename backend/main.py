@@ -5,6 +5,8 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth.dependencies import require_auth
+from backend.error_handlers import handle_uncaught_exception
+from backend.middleware.request_id import RequestIDMiddleware
 from backend.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,8 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=True,
 )
+app.add_middleware(RequestIDMiddleware)
+app.add_exception_handler(Exception, handle_uncaught_exception)
 
 from backend.routers import agent, auth, history, portfolio, sync
 
@@ -84,5 +88,5 @@ app.include_router(agent.router)
 @app.get("/api/health")
 async def health() -> dict:
     """Public — used to confirm the server is up before login."""
-    agent_ok = app.state.agent_graph is not None
+    agent_ok = getattr(app.state, "agent_graph", None) is not None
     return {"status": "ok", "agent": agent_ok}

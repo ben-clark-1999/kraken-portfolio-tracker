@@ -10,6 +10,8 @@ import AgentInput from '../components/AgentInput'
 import AgentPanel from '../components/AgentPanel'
 import SignOutButton from '../components/SignOutButton'
 import { useAgentChat } from '../hooks/useAgentChat'
+import { SERVER_ERROR_EVENT, type ServerErrorDetail } from '../api/client'
+import ErrorBanner from '../components/ErrorBanner'
 
 interface DashboardErrors {
   summary?: string
@@ -60,6 +62,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps) {
   const [range, setRange] = useState<Range>('1M')
   const [panelOpen, setPanelOpen] = useState(false)
   const agent = useAgentChat()
+  const [serverError, setServerError] = useState<ServerErrorDetail | null>(null)
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
@@ -87,6 +90,10 @@ export default function Dashboard({ onSignedOut }: DashboardProps) {
       errors,
     }))
     setRefreshing(false)
+    // Successful refresh clears any banner from a previous failed call.
+    if (summaryResult.status === 'fulfilled') {
+      setServerError(null)
+    }
   }, [])
 
   useEffect(() => {
@@ -103,6 +110,15 @@ export default function Dashboard({ onSignedOut }: DashboardProps) {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [panelOpen])
+
+  useEffect(() => {
+    function handleServerError(e: Event) {
+      const detail = (e as CustomEvent<ServerErrorDetail>).detail
+      setServerError(detail)
+    }
+    window.addEventListener(SERVER_ERROR_EVENT, handleServerError)
+    return () => window.removeEventListener(SERVER_ERROR_EVENT, handleServerError)
+  }, [])
 
   function handleAgentSubmit(content: string) {
     setPanelOpen(true)
@@ -159,6 +175,18 @@ export default function Dashboard({ onSignedOut }: DashboardProps) {
             )}
           </div>
         </header>
+      )}
+
+      {/* Server error banner (5xx) */}
+      {serverError && (
+        <ErrorBanner
+          detail={serverError}
+          onRetry={() => {
+            setServerError(null)
+            refresh()
+          }}
+          onDismiss={() => setServerError(null)}
+        />
       )}
 
       {/* Stale-data banner */}
