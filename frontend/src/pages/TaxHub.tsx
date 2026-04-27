@@ -1,5 +1,9 @@
+import { useState } from 'react'
 import type { JSX } from 'react'
 import { useTaxData } from '../hooks/useTaxData'
+import { currentFinancialYear } from '../utils/financialYear'
+import FYAccordion from '../components/tax/FYAccordion'
+import type { FYOverview } from '../types/tax'
 
 /* ──────────────────────────────────────────────────────────────────────────
  * TaxHub — page shell, four states.
@@ -26,6 +30,23 @@ import { useTaxData } from '../hooks/useTaxData'
 export default function TaxHub(): JSX.Element {
   const { overview, overviewError, refreshOverview } = useTaxData()
 
+  // Expansion state for the FY accordion. Lives at the page level so a
+  // future "expand all", URL-driven deep-link, or persistent-state
+  // hydration can swap in without restructuring children. Default
+  // expanded set is the current AU FY — the row a returning user is
+  // most likely working in.
+  const [expandedFYs, setExpandedFYs] = useState<Set<string>>(
+    () => new Set([currentFinancialYear()]),
+  )
+  const toggleFY = (fy: string): void => {
+    setExpandedFYs((prev) => {
+      const next = new Set(prev)
+      if (next.has(fy)) next.delete(fy)
+      else next.add(fy)
+      return next
+    })
+  }
+
   let body: JSX.Element
   if (overviewError) {
     body = <ErrorState message={overviewError} onRetry={() => void refreshOverview()} />
@@ -34,7 +55,13 @@ export default function TaxHub(): JSX.Element {
   } else if (overview.length === 0) {
     body = <EmptyState />
   } else {
-    body = <HasDataState count={overview.length} />
+    body = (
+      <HasDataState
+        overview={overview}
+        expandedFYs={expandedFYs}
+        toggleFY={toggleFY}
+      />
+    )
   }
 
   return (
@@ -212,10 +239,16 @@ function EmptyState(): JSX.Element {
 /* ── Has data ───────────────────────────────────────────────────────────── */
 
 interface HasDataStateProps {
-  count: number
+  overview: FYOverview[]
+  expandedFYs: Set<string>
+  toggleFY: (fy: string) => void
 }
 
-function HasDataState({ count }: HasDataStateProps): JSX.Element {
+function HasDataState({
+  overview,
+  expandedFYs,
+  toggleFY,
+}: HasDataStateProps): JSX.Element {
   return (
     <div className="pt-10 pb-16 flex flex-col gap-10">
       <header className="flex flex-col gap-2.5">
@@ -230,9 +263,16 @@ function HasDataState({ count }: HasDataStateProps): JSX.Element {
         </p>
       </header>
 
-      <div className="text-txt-muted">
-        FYAccordion stub — Task 19 replaces with real component. Got {count} FY(s).
-      </div>
+      <FYAccordion
+        overview={overview}
+        expandedFYs={expandedFYs}
+        onToggleFY={toggleFY}
+        renderFYContent={(fy) => (
+          <div className="text-txt-muted px-4 py-6">
+            Sub-sections coming in Task 20 — FY {fy}
+          </div>
+        )}
+      />
     </div>
   )
 }
