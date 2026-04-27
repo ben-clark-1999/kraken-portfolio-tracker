@@ -23,11 +23,8 @@ def get_last_synced_trade_id() -> str | None:
 
 def upsert_lots(trades: list[dict]) -> str | None:
     """
-    Converts raw trade dicts (from kraken_service.get_trade_history) into lot rows
-    and inserts only trades not already in the database.
-
-    Checks existing kraken_trade_id values first to avoid overwriting
-    remaining_quantity on lots that may have been partially disposed.
+    Converts raw trade dicts into lot rows and inserts only trades not already
+    in the database.
 
     Returns the trade_id of the first trade in the input (most recent),
     or None if trades is empty.
@@ -35,12 +32,10 @@ def upsert_lots(trades: list[dict]) -> str | None:
     if not trades:
         return None
 
-    db = get_supabase()
+    from backend.repositories import lots_repo
 
-    # Find which trades already exist
     trade_ids = [t["trade_id"] for t in trades]
-    existing = db.table("lots").select("kraken_trade_id").in_("kraken_trade_id", trade_ids).execute()
-    existing_ids = {row["kraken_trade_id"] for row in existing.data}
+    existing_ids = lots_repo.get_existing_trade_ids(trade_ids)
 
     new_trades = [t for t in trades if t["trade_id"] not in existing_ids]
     if new_trades:
@@ -50,7 +45,6 @@ def upsert_lots(trades: list[dict]) -> str | None:
             quantity = Decimal(trade["vol"])
             cost_per_unit = Decimal(trade["price"])
             cost_aud = Decimal(trade["cost"])
-
             rows.append({
                 "asset": trade["asset"],
                 "acquired_at": acquired_at,
@@ -60,7 +54,7 @@ def upsert_lots(trades: list[dict]) -> str | None:
                 "kraken_trade_id": trade["trade_id"],
                 "remaining_quantity": str(quantity),
             })
-        db.table("lots").insert(rows).execute()
+        lots_repo.insert(rows)
 
     return trades[0]["trade_id"]
 
@@ -76,11 +70,10 @@ def record_sync(last_trade_id: str | None, status: str, error_message: str | Non
 
 
 def get_all_lots() -> list[Lot]:
-    """Returns all lots from Supabase ordered oldest first, parsed into Lot models.
+    """Returns all lots from Supabase ordered oldest first.
 
-    Supabase returns numeric columns as strings; pydantic coerces them into the
-    Lot model's float fields automatically.
+    Thin wrapper kept for backward compatibility with existing call sites
+    (router and MCP tool). New code should call lots_repo.get_all() directly.
     """
-    db = get_supabase()
-    result = db.table("lots").select("*").order("acquired_at", desc=False).execute()
-    return [Lot(**row) for row in result.data]
+    from backend.repositories import lots_repo
+    return lots_repo.get_all()

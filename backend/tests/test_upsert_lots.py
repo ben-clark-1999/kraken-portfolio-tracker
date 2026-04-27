@@ -1,6 +1,3 @@
-from unittest.mock import patch, MagicMock
-
-
 def _make_trade(trade_id: str, asset: str = "ETH") -> dict:
     return {
         "trade_id": trade_id,
@@ -12,18 +9,17 @@ def _make_trade(trade_id: str, asset: str = "ETH") -> dict:
     }
 
 
-@patch("backend.services.sync_service.get_supabase")
-def test_upsert_lots_skips_existing_trades(mock_get_db):
-    mock_db = MagicMock()
-    mock_get_db.return_value = mock_db
-
-    # Simulate t1 already existing in the database
-    mock_db.table.return_value.select.return_value.in_.return_value.execute.return_value = MagicMock(
-        data=[{"kraken_trade_id": "t1"}]
+def test_upsert_lots_skips_existing_trades(monkeypatch):
+    monkeypatch.setattr(
+        "backend.repositories.lots_repo.get_existing_trade_ids",
+        lambda trade_ids, schema="public": {"t1"},
     )
+    inserted: list[dict] = []
 
-    # Mock insert chain
-    mock_db.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[])
+    def _fake_insert(rows, schema="public"):
+        inserted.extend(rows)
+
+    monkeypatch.setattr("backend.repositories.lots_repo.insert", _fake_insert)
 
     from backend.services.sync_service import upsert_lots
 
@@ -34,22 +30,21 @@ def test_upsert_lots_skips_existing_trades(mock_get_db):
     assert result == "t1"
 
     # Should only insert t2 (t1 already exists)
-    insert_call = mock_db.table.return_value.insert
-    insert_call.assert_called_once()
-    inserted_rows = insert_call.call_args[0][0]
-    assert len(inserted_rows) == 1
-    assert inserted_rows[0]["kraken_trade_id"] == "t2"
+    assert len(inserted) == 1
+    assert inserted[0]["kraken_trade_id"] == "t2"
 
 
-@patch("backend.services.sync_service.get_supabase")
-def test_upsert_lots_all_existing_skips_insert(mock_get_db):
-    mock_db = MagicMock()
-    mock_get_db.return_value = mock_db
-
-    # Both trades already exist
-    mock_db.table.return_value.select.return_value.in_.return_value.execute.return_value = MagicMock(
-        data=[{"kraken_trade_id": "t1"}, {"kraken_trade_id": "t2"}]
+def test_upsert_lots_all_existing_skips_insert(monkeypatch):
+    monkeypatch.setattr(
+        "backend.repositories.lots_repo.get_existing_trade_ids",
+        lambda trade_ids, schema="public": {"t1", "t2"},
     )
+    inserted: list[dict] = []
+
+    def _fake_insert(rows, schema="public"):
+        inserted.extend(rows)
+
+    monkeypatch.setattr("backend.repositories.lots_repo.insert", _fake_insert)
 
     from backend.services.sync_service import upsert_lots
 
@@ -58,13 +53,24 @@ def test_upsert_lots_all_existing_skips_insert(mock_get_db):
 
     assert result == "t1"
     # insert should NOT be called — all trades already exist
-    mock_db.table.return_value.insert.assert_not_called()
+    assert inserted == []
 
 
-@patch("backend.services.sync_service.get_supabase")
-def test_upsert_lots_empty_trades(mock_get_db):
+def test_upsert_lots_empty_trades(monkeypatch):
+    called = []
+
+    def _fake_get_existing(trade_ids, schema="public"):
+        called.append("get_existing_trade_ids")
+        return set()
+
+    monkeypatch.setattr(
+        "backend.repositories.lots_repo.get_existing_trade_ids",
+        _fake_get_existing,
+    )
+
     from backend.services.sync_service import upsert_lots
 
     result = upsert_lots([])
     assert result is None
-    mock_get_db.assert_not_called()
+    # repo should not be called for empty input
+    assert called == []
