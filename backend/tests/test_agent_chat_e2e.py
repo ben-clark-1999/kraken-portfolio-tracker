@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessageChunk, ToolMessage
+from starlette.websockets import WebSocketDisconnect
 
 from backend.main import app
 
@@ -48,13 +49,21 @@ class _StubGraph:
 
 @pytest.fixture
 def authed_client():
-    """Override the agent graph to a stub and provide an auth cookie."""
+    """Override the agent graph to a stub and provide an auth cookie.
+
+    Yields-and-restores so the global `app.state.agent_graph` doesn't leak
+    into other tests that share the same FastAPI app singleton.
+    """
     from backend.auth.jwt import encode_token
 
+    original = getattr(app.state, "agent_graph", None)
     app.state.agent_graph = _StubGraph()
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("auth_token", encode_token())
-    return client
+    try:
+        client = TestClient(app, raise_server_exceptions=True)
+        client.cookies.set("auth_token", encode_token())
+        yield client
+    finally:
+        app.state.agent_graph = original
 
 
 def test_websocket_emits_expected_message_sequence(authed_client):
@@ -86,7 +95,10 @@ def test_websocket_emits_expected_message_sequence(authed_client):
 
 def test_websocket_rejects_unauthenticated_connection():
     client_no_auth = TestClient(app)
-    # Don't set the cookie — server accepts then immediately closes with 4401
-    with pytest.raises(Exception):  # WebSocket close with code 4401
+    # Don't set the cookie — server accepts then immediately closes with 4401.
+    # The 4401 close code is load-bearing: the frontend uses it to skip
+    # auto-reconnect (otherwise the client would loop forever on auth failure).
+    with pytest.raises(WebSocketDisconnect) as exc_info:
         with client_no_auth.websocket_connect("/api/agent/chat") as ws:
             ws.receive_json()
+    assert exc_info.value.code == 4401
