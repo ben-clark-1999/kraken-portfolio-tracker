@@ -5,7 +5,8 @@ import { currentFinancialYear } from '../utils/financialYear'
 import FYAccordion from '../components/tax/FYAccordion'
 import KrakenActivityRow from '../components/tax/KrakenActivityRow'
 import EntryList from '../components/tax/EntryList'
-import type { FYOverview, TaxEntry, TaxEntryKind } from '../types/tax'
+import EntryDrawer from '../components/tax/EntryDrawer'
+import type { FYOverview, TaxEntry, TaxEntryCreate, TaxEntryKind } from '../types/tax'
 
 /* ──────────────────────────────────────────────────────────────────────────
  * TaxHub — page shell, four states.
@@ -36,6 +37,8 @@ export default function TaxHub(): JSX.Element {
     entriesByFY,
     refreshOverview,
     loadEntries,
+    createEntry,
+    updateEntry,
     deleteEntry,
   } = useTaxData()
 
@@ -56,13 +59,49 @@ export default function TaxHub(): JSX.Element {
     })
   }
 
+  // EntryDrawer state — owned at the page level because the drawer is
+  // shared across every FY in the accordion (and the empty-state CTA).
+  // `kind: null` in create mode shows the kind picker; otherwise the form
+  // renders directly for that kind.
+  const [drawer, setDrawer] = useState<{
+    open: boolean
+    mode: 'create' | 'edit'
+    kind: TaxEntryKind | null
+    initialEntry?: TaxEntry
+  }>({ open: false, mode: 'create', kind: null })
+
+  const handleAdd = (kind: TaxEntryKind): void =>
+    setDrawer({ open: true, mode: 'create', kind })
+  const handleEdit = (kind: TaxEntryKind, entry: TaxEntry): void =>
+    setDrawer({ open: true, mode: 'edit', kind, initialEntry: entry })
+  const handleAddFirst = (): void =>
+    setDrawer({ open: true, mode: 'create', kind: null })
+  const handleCloseDrawer = (): void =>
+    setDrawer((d) => ({ ...d, open: false }))
+
+  // Save router — bridges EntryDrawer's typed onSave contract to the
+  // appropriate useTaxData mutation. Errors propagate so the drawer can
+  // fire its own loss-toast and keep the form open for correction.
+  const handleSave = async (
+    kind: TaxEntryKind,
+    payload: TaxEntryCreate,
+    isEdit: boolean,
+    id?: string,
+  ): Promise<void> => {
+    if (isEdit && id) {
+      await updateEntry(kind, id, payload)
+    } else {
+      await createEntry(kind, payload)
+    }
+  }
+
   let body: JSX.Element
   if (overviewError) {
     body = <ErrorState message={overviewError} onRetry={() => void refreshOverview()} />
   } else if (overview === null) {
     body = <LoadingState />
   } else if (overview.length === 0) {
-    body = <EmptyState />
+    body = <EmptyState onAddFirst={handleAddFirst} />
   } else {
     body = (
       <HasDataState
@@ -72,6 +111,8 @@ export default function TaxHub(): JSX.Element {
         entriesByFY={entriesByFY}
         loadEntries={loadEntries}
         deleteEntry={deleteEntry}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
       />
     )
   }
@@ -79,6 +120,15 @@ export default function TaxHub(): JSX.Element {
   return (
     <main className="flex-1 min-w-0">
       <div className="max-w-7xl mx-auto px-6">{body}</div>
+
+      <EntryDrawer
+        open={drawer.open}
+        mode={drawer.mode}
+        kind={drawer.kind}
+        initialEntry={drawer.initialEntry}
+        onClose={handleCloseDrawer}
+        onSave={handleSave}
+      />
     </main>
   )
 }
@@ -148,13 +198,15 @@ function Track({ eyebrow, label }: TrackProps): JSX.Element {
  * eyebrow and three ruled hairline guides, then the heading column on the
  * right. Below the card, a thin row of three "tracks" teaches what the
  * workspace contains without resorting to icon grids.
+ *
+ * The "Add your first entry" CTA opens the EntryDrawer in create mode
+ * with no kind preselected — so the user lands on the kind picker first.
  */
-function EmptyState(): JSX.Element {
-  function handleAdd(): void {
-    // Task 21 wires the EntryDrawer.
-    console.log('TaxHub: + Add your first entry — stub (Task 21)')
-  }
+interface EmptyStateProps {
+  onAddFirst: () => void
+}
 
+function EmptyState({ onAddFirst }: EmptyStateProps): JSX.Element {
   return (
     <div className="min-h-[calc(100vh-3rem)] flex items-center justify-center py-12">
       <div className="w-full max-w-2xl flex flex-col gap-10">
@@ -211,7 +263,7 @@ function EmptyState(): JSX.Element {
               <div>
                 <button
                   type="button"
-                  onClick={handleAdd}
+                  onClick={onAddFirst}
                   className={[
                     'group inline-flex items-center gap-2 rounded-md px-4 py-2.5',
                     'bg-kraken text-white text-[13px] font-medium tracking-tight',
@@ -257,6 +309,8 @@ interface HasDataStateProps {
   entriesByFY: Record<string, Partial<Record<TaxEntryKind, TaxEntry[]>>>
   loadEntries: (kind: TaxEntryKind, fy: string) => Promise<void>
   deleteEntry: (kind: TaxEntryKind, id: string, fy: string) => Promise<void>
+  onAdd: (kind: TaxEntryKind) => void
+  onEdit: (kind: TaxEntryKind, entry: TaxEntry) => void
 }
 
 function HasDataState({
@@ -266,6 +320,8 @@ function HasDataState({
   entriesByFY,
   loadEntries,
   deleteEntry,
+  onAdd,
+  onEdit,
 }: HasDataStateProps): JSX.Element {
   // Memoise the per-FY overview lookup so renderFYContent can grab the
   // matching row without rescanning the array on every accordion paint.
@@ -303,6 +359,8 @@ function HasDataState({
               entriesByFY={entriesByFY}
               loadEntries={loadEntries}
               deleteEntry={deleteEntry}
+              onAdd={onAdd}
+              onEdit={onEdit}
             />
           )
         }}
@@ -333,6 +391,8 @@ interface FYContentProps {
   entriesByFY: Record<string, Partial<Record<TaxEntryKind, TaxEntry[]>>>
   loadEntries: (kind: TaxEntryKind, fy: string) => Promise<void>
   deleteEntry: (kind: TaxEntryKind, id: string, fy: string) => Promise<void>
+  onAdd: (kind: TaxEntryKind) => void
+  onEdit: (kind: TaxEntryKind, entry: TaxEntry) => void
 }
 
 function FYContent({
@@ -341,6 +401,8 @@ function FYContent({
   entriesByFY,
   loadEntries,
   deleteEntry,
+  onAdd,
+  onEdit,
 }: FYContentProps): JSX.Element {
   // Fire the three loads on mount. We don't await them; the EntryList
   // already renders its loading skeleton against `entries === undefined`.
@@ -359,14 +421,9 @@ function FYContent({
 
   const bucket = entriesByFY[fy]
 
-  // Stub callbacks. Task 21 wires the EntryDrawer; Task 22 wires the
-  // signed-URL fetch for attachments. onDelete is real today.
-  function onAdd(kind: TaxEntryKind): void {
-    console.log('TaxHub: add', kind, fy)
-  }
-  function onEdit(entry: TaxEntry): void {
-    console.log('TaxHub: edit', entry)
-  }
+  // onDelete stays local (it's the only path that needs `fy` to scope
+  // the optimistic-update bucket). onAdd/onEdit forward up to TaxHub
+  // which owns the EntryDrawer state. Task 22 wires onViewAttachment.
   function onDelete(kind: TaxEntryKind, entry: TaxEntry): void {
     deleteEntry(kind, entry.id, fy).catch((err) => {
       console.error('TaxHub: delete failed', err)
@@ -385,7 +442,7 @@ function FYContent({
         fy={fy}
         entries={bucket?.income}
         onAdd={() => onAdd('income')}
-        onEdit={onEdit}
+        onEdit={(entry) => onEdit('income', entry)}
         onDelete={(entry) => onDelete('income', entry)}
         onViewAttachment={onViewAttachment}
       />
@@ -395,7 +452,7 @@ function FYContent({
         fy={fy}
         entries={bucket?.tax_paid}
         onAdd={() => onAdd('tax_paid')}
-        onEdit={onEdit}
+        onEdit={(entry) => onEdit('tax_paid', entry)}
         onDelete={(entry) => onDelete('tax_paid', entry)}
         onViewAttachment={onViewAttachment}
       />
@@ -405,7 +462,7 @@ function FYContent({
         fy={fy}
         entries={bucket?.deductible}
         onAdd={() => onAdd('deductible')}
-        onEdit={onEdit}
+        onEdit={(entry) => onEdit('deductible', entry)}
         onDelete={(entry) => onDelete('deductible', entry)}
         onViewAttachment={onViewAttachment}
       />
