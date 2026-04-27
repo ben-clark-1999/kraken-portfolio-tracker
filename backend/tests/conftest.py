@@ -20,7 +20,9 @@ def clean_test_tables(test_db: Client):
     remain DB-free.
     """
     def _clean():
-        for table in ["lots", "portfolio_snapshots", "sync_log"]:
+        for table in ["lots", "portfolio_snapshots", "sync_log",
+                      "tax_deductibles", "tax_income", "tax_paid",
+                      "tax_attachments"]:
             test_db.schema("test").table(table).delete().neq("id", _SENTINEL_UUID).execute()
         # prices table uses asset (text) as PK
         test_db.schema("test").table("prices").delete().neq("asset", "__sentinel__").execute()
