@@ -206,3 +206,56 @@ def test_delete_entry_calls_delete(mock_supabase):
     tax_service.delete_entry(TaxEntryKind.DEDUCTIBLE, "abc")
 
     deductibles.delete.return_value.eq.assert_called_with("id", "abc")
+
+
+def test_get_overview_aggregates_per_fy(mock_supabase):
+    from backend.services import tax_service
+
+    deductibles_rows = [
+        {"financial_year": "2025-26", "amount_aud": 32.0},
+        {"financial_year": "2025-26", "amount_aud": 28.0},
+        {"financial_year": "2024-25", "amount_aud": 100.0},
+    ]
+    income_rows = [
+        {"financial_year": "2025-26", "amount_aud": 6500.0},
+        {"financial_year": "2024-25", "amount_aud": 6000.0},
+    ]
+    paid_rows = [
+        {"financial_year": "2025-26", "amount_aud": 1840.0},
+    ]
+
+    mock_supabase.table("tax_deductibles").select.return_value.execute.return_value.data = deductibles_rows
+    mock_supabase.table("tax_income").select.return_value.execute.return_value.data = income_rows
+    mock_supabase.table("tax_paid").select.return_value.execute.return_value.data = paid_rows
+
+    # Patch Kraken activity so this test stays focused on aggregation
+    with patch("backend.services.tax_service.get_kraken_activity_by_fy") as kraken_mock:
+        kraken_mock.return_value = {
+            "2025-26": {"total_aud_invested": 0.0, "total_buys": 0, "per_asset": {}},
+            "2024-25": {"total_aud_invested": 0.0, "total_buys": 0, "per_asset": {}},
+        }
+        result = tax_service.get_overview()
+
+    fys = [r.financial_year for r in result]
+    assert "2025-26" in fys and "2024-25" in fys
+    # Sorted descending
+    assert fys == sorted(fys, reverse=True)
+
+    fy_2526 = next(r for r in result if r.financial_year == "2025-26")
+    assert fy_2526.deductibles_total_aud == 60.0
+    assert fy_2526.income_total_aud == 6500.0
+    assert fy_2526.tax_paid_total_aud == 1840.0
+
+
+def test_get_overview_returns_empty_when_no_data(mock_supabase):
+    from backend.services import tax_service
+
+    mock_supabase.table("tax_deductibles").select.return_value.execute.return_value.data = []
+    mock_supabase.table("tax_income").select.return_value.execute.return_value.data = []
+    mock_supabase.table("tax_paid").select.return_value.execute.return_value.data = []
+
+    with patch("backend.services.tax_service.get_kraken_activity_by_fy") as kraken_mock:
+        kraken_mock.return_value = {}
+        result = tax_service.get_overview()
+
+    assert result == []

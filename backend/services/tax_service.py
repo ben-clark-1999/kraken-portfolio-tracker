@@ -12,12 +12,16 @@ The service normalizes to a single `date` field in the API response
 (TaxEntry).
 """
 
+from collections import defaultdict
 from datetime import date as date_t
 
 from backend.db.supabase_client import get_supabase
 from backend.models.tax import (
     DeductibleType,
+    FYOverview,
     IncomeType,
+    KrakenAssetActivity,
+    KrakenFYActivity,
     TaxAttachment,
     TaxEntry,
     TaxEntryCreate,
@@ -210,3 +214,57 @@ def delete_entry(kind: TaxEntryKind, id: str) -> None:
     result = db.table(table).delete().eq("id", id).execute()
     if not result.data:
         raise EntryNotFoundError(f"{kind.value} entry not found: {id}")
+
+
+# ── Overview / aggregation ───────────────────────────────────────
+
+def get_overview() -> list[FYOverview]:
+    """Aggregate totals per FY across all three entry tables, plus Kraken activity.
+
+    Returns one FYOverview per FY that has *any* data (entry rows in any table
+    OR Kraken activity for that FY). Sorted by FY descending (newest first).
+    """
+    db = get_supabase()
+
+    deductibles_by_fy: dict[str, float] = defaultdict(float)
+    income_by_fy: dict[str, float] = defaultdict(float)
+    tax_paid_by_fy: dict[str, float] = defaultdict(float)
+
+    for row in db.table("tax_deductibles").select("financial_year, amount_aud").execute().data or []:
+        deductibles_by_fy[row["financial_year"]] += float(row["amount_aud"])
+    for row in db.table("tax_income").select("financial_year, amount_aud").execute().data or []:
+        income_by_fy[row["financial_year"]] += float(row["amount_aud"])
+    for row in db.table("tax_paid").select("financial_year, amount_aud").execute().data or []:
+        tax_paid_by_fy[row["financial_year"]] += float(row["amount_aud"])
+
+    kraken_by_fy = get_kraken_activity_by_fy()
+
+    all_fys = (
+        set(deductibles_by_fy)
+        | set(income_by_fy)
+        | set(tax_paid_by_fy)
+        | set(kraken_by_fy)
+    )
+
+    overviews: list[FYOverview] = []
+    for fy in sorted(all_fys, reverse=True):
+        kraken = kraken_by_fy.get(fy, {"total_aud_invested": 0.0, "total_buys": 0, "per_asset": {}})
+        overviews.append(FYOverview(
+            financial_year=fy,
+            income_total_aud=round(income_by_fy[fy], 2),
+            tax_paid_total_aud=round(tax_paid_by_fy[fy], 2),
+            deductibles_total_aud=round(deductibles_by_fy[fy], 2),
+            kraken_activity=KrakenFYActivity(
+                total_aud_invested=kraken["total_aud_invested"],
+                total_buys=kraken["total_buys"],
+                per_asset={
+                    asset: KrakenAssetActivity(**vals) for asset, vals in kraken["per_asset"].items()
+                },
+            ),
+        ))
+    return overviews
+
+
+def get_kraken_activity_by_fy() -> dict[str, dict]:
+    """Stub — implementation lands in Task 6."""
+    return {}
