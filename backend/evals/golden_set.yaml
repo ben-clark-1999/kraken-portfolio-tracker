@@ -1,0 +1,142 @@
+# Quick path (10)
+- id: q001
+  query: "How much is my portfolio worth?"
+  expected_classification: quick
+  min_confidence: 0.85
+  expected_tools_any_of: [get_portfolio_summary]
+  forbidden_tools: [get_buy_and_hold_comparison, get_relative_performance]
+
+- id: q002
+  query: "When's my next buy?"
+  expected_classification: quick
+  min_confidence: 0.85
+  expected_tools_any_of: [get_portfolio_summary, get_dca_history, get_dca_analysis]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q003
+  query: "How much have I put in so far?"
+  expected_classification: quick
+  min_confidence: 0.80
+  expected_tools_any_of: [get_dca_analysis, get_dca_history, get_portfolio_summary]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q004
+  query: "What do I hold right now?"
+  expected_classification: quick
+  min_confidence: 0.85
+  expected_tools_any_of: [get_balances, get_portfolio_summary]
+  forbidden_tools: [get_buy_and_hold_comparison, get_relative_performance]
+
+- id: q005
+  query: "How much did I spend on ETH in total?"
+  expected_classification: quick
+  min_confidence: 0.80
+  expected_tools_any_of: [get_dca_analysis, get_dca_history]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q006
+  query: "What's the current ETH price?"
+  expected_classification: quick
+  min_confidence: 0.85
+  expected_tools_any_of: [get_prices, get_portfolio_summary]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q007
+  query: "Show me my DCA history"
+  expected_classification: quick
+  min_confidence: 0.85
+  expected_tools_any_of: [get_dca_history]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q008
+  query: "How many lots do I have?"
+  expected_classification: quick
+  min_confidence: 0.75
+  expected_tools_any_of: [get_dca_analysis, get_dca_history]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q009
+  query: "What's my SOL balance?"
+  expected_classification: quick
+  min_confidence: 0.85
+  expected_tools_any_of: [get_balances, get_portfolio_summary]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q010
+  query: "When did I make my last buy?"
+  expected_classification: quick
+  min_confidence: 0.80
+  expected_tools_any_of: [get_dca_history, get_dca_analysis]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+# Analysis path (8)
+- id: q011
+  query: "Am I up or down overall?"
+  expected_classification: analysis
+  min_confidence: 0.75
+  expected_tools_any_of: [get_balance_change, get_portfolio_summary]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q012
+  query: "How's ETH doing this month?"
+  expected_classification: analysis
+  min_confidence: 0.80
+  expected_tools_any_of: [get_relative_performance, get_balance_change]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q013
+  query: "Was last week good or bad for me?"
+  expected_classification: analysis
+  min_confidence: 0.80
+  expected_tools_any_of: [get_balance_change]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q014
+  query: "Which of my coins is doing best?"
+  expected_classification: analysis
+  min_confidence: 0.80
+  expected_tools_any_of: [get_relative_performance]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q015
+  query: "Which one is dragging me down?"
+  expected_classification: analysis
+  min_confidence: 0.75
+  expected_tools_any_of: [get_relative_performance]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q016
+  query: "How has my portfolio performed over the last 3 months?"
+  expected_classification: analysis
+  min_confidence: 0.85
+  expected_tools_any_of: [get_balance_change, get_snapshots]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q017
+  query: "Has my strategy paid off?"
+  expected_classification: analysis
+  min_confidence: 0.65
+  expected_tools_any_of: [get_balance_change, get_dca_analysis, get_relative_performance]
+  forbidden_tools: []
+
+- id: q018
+  query: "How's SOL doing this week vs last week?"
+  expected_classification: analysis
+  min_confidence: 0.80
+  expected_tools_any_of: [get_balance_change, get_relative_performance]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+# Tax path (2 — the remaining 3 land in Task 4.2)
+- id: q019
+  query: "If I sold everything today, how much tax would I pay?"
+  expected_classification: tax
+  min_confidence: 0.85
+  expected_tools_any_of: [get_unrealised_cgt]
+  forbidden_tools: [get_buy_and_hold_comparison]
+
+- id: q020
+  query: "Which of my buys are almost old enough for the CGT discount?"
+  expected_classification: tax
+  min_confidence: 0.85
+  expected_tools_any_of: [get_unrealised_cgt]
+  forbidden_tools: [get_buy_and_hold_comparison]

@@ -4,3 +4,4 @@
 **/*.pyc
 .superpowers/
 .claude/settings.json
+backend/evals/results/*.json
