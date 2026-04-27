@@ -95,3 +95,78 @@ def test_delete_removes_storage_object_then_row(mock_supabase):
 
     mock_supabase.storage.from_.return_value.remove.assert_called_once_with(["deductibles/2025-26/abc.pdf"])
     mock_supabase.table.return_value.delete.return_value.eq.assert_called_with("id", "att-1")
+
+
+def test_upload_rejects_empty_file(mock_supabase):
+    from backend.services import storage_service
+    from backend.services.storage_service import AttachmentValidationError
+
+    file = _make_upload_file("empty.pdf", "application/pdf", b"")
+
+    with pytest.raises(AttachmentValidationError, match="empty"):
+        storage_service.upload_attachment("deductible", None, file)
+
+
+def test_upload_rolls_back_storage_object_when_db_insert_fails(mock_supabase):
+    from backend.services import storage_service
+    from backend.services.storage_service import StorageServiceError
+
+    file = _make_upload_file("receipt.pdf", "application/pdf", b"%PDF-1.4 ...")
+
+    # Storage upload succeeds
+    mock_supabase.storage.from_.return_value.upload.return_value = None
+    # But DB insert returns no data (simulates conflict / RLS rejection)
+    mock_supabase.table.return_value.insert.return_value.execute.return_value.data = []
+    mock_supabase.storage.from_.return_value.remove.return_value = None
+
+    with pytest.raises(StorageServiceError):
+        storage_service.upload_attachment("deductible", None, file)
+
+    # Verify the storage object was rolled back
+    mock_supabase.storage.from_.return_value.remove.assert_called_once()
+    removed_paths = mock_supabase.storage.from_.return_value.remove.call_args[0][0]
+    assert len(removed_paths) == 1
+    assert removed_paths[0].startswith("PENDING/")
+
+
+def test_sweep_pending_attachments_removes_orphans(mock_supabase):
+    from backend.services import storage_service
+
+    orphan_rows = [
+        {"id": "att-1", "storage_path": "PENDING/old1.pdf"},
+        {"id": "att-2", "storage_path": "PENDING/old2.pdf"},
+    ]
+
+    chain = (
+        mock_supabase.table.return_value
+        .select.return_value
+        .is_.return_value
+        .lt.return_value
+    )
+    chain.execute.return_value.data = orphan_rows
+
+    mock_supabase.storage.from_.return_value.remove.return_value = None
+    mock_supabase.table.return_value.delete.return_value.eq.return_value.execute.return_value.data = [{"id": "x"}]
+
+    swept = storage_service.sweep_pending_attachments(older_than_hours=24)
+
+    assert swept == 2
+    # Storage SDK called once per orphan
+    assert mock_supabase.storage.from_.return_value.remove.call_count == 2
+
+
+def test_sweep_pending_attachments_returns_zero_when_no_orphans(mock_supabase):
+    from backend.services import storage_service
+
+    chain = (
+        mock_supabase.table.return_value
+        .select.return_value
+        .is_.return_value
+        .lt.return_value
+    )
+    chain.execute.return_value.data = []
+
+    swept = storage_service.sweep_pending_attachments()
+
+    assert swept == 0
+    mock_supabase.storage.from_.return_value.remove.assert_not_called()

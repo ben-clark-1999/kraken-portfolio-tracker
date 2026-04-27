@@ -7,7 +7,7 @@ URLs that the browser uses to read the object directly from Storage.
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import UploadFile
 
@@ -138,7 +138,7 @@ def create_signed_url(attachment_id: str) -> tuple[str, datetime]:
     if not url:
         raise StorageBackendError(f"Storage SDK returned no URL: {signed!r}")
 
-    expires_at = datetime.utcnow() + timedelta(seconds=SIGNED_URL_TTL_SECONDS)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=SIGNED_URL_TTL_SECONDS)
     return url, expires_at
 
 
@@ -167,7 +167,7 @@ def sweep_pending_attachments(older_than_hours: int = 24) -> int:
 
     Returns the count of swept items. Called from the APScheduler job.
     """
-    cutoff = datetime.utcnow() - timedelta(hours=older_than_hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
 
     db = get_supabase()
     rows = (

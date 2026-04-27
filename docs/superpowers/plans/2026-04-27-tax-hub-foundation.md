@@ -1335,7 +1335,7 @@ URLs that the browser uses to read the object directly from Storage.
 
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 
 from fastapi import UploadFile
@@ -1467,7 +1467,7 @@ def create_signed_url(attachment_id: str) -> tuple[str, datetime]:
     if not url:
         raise StorageBackendError(f"Storage SDK returned no URL: {signed!r}")
 
-    expires_at = datetime.utcnow() + timedelta(seconds=SIGNED_URL_TTL_SECONDS)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=SIGNED_URL_TTL_SECONDS)
     return url, expires_at
 
 
@@ -1496,7 +1496,7 @@ def sweep_pending_attachments(older_than_hours: int = 24) -> int:
 
     Returns the count of swept items. Called from the APScheduler job.
     """
-    cutoff = datetime.utcnow() - timedelta(hours=older_than_hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
 
     db = get_supabase()
     rows = (
@@ -1882,8 +1882,8 @@ def test_attachment_upload_wrong_type_returns_415(client):
 
 
 def test_signed_url_returns_url_and_expiry(client):
-    from datetime import datetime, timedelta
-    expires = datetime.utcnow() + timedelta(seconds=300)
+    from datetime import datetime, timedelta, timezone
+    expires = datetime.now(timezone.utc) + timedelta(seconds=300)
     with patch("backend.routers.tax.storage_service.create_signed_url") as m:
         m.return_value = ("https://signed.example/abc", expires)
         response = client.get("/api/tax/attachments/att-1/url")
