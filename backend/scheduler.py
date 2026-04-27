@@ -28,8 +28,19 @@ async def _hourly_snapshot() -> None:
     try:
         await asyncio.to_thread(_do_snapshot)
     except Exception:
-        # Log but don't crash the scheduler
         logger.exception("Hourly snapshot failed")
+
+
+async def _startup() -> None:
+    """One-time startup: backfill historical snapshots, then capture current state."""
+    try:
+        n = await asyncio.to_thread(snapshot_service.backfill_from_ledger)
+        if n > 0:
+            logger.info("Startup backfill created %d snapshots", n)
+    except Exception:
+        logger.exception("Startup backfill failed (non-fatal)")
+
+    await _hourly_snapshot()
 
 
 def _do_pending_sweep() -> None:
@@ -48,13 +59,12 @@ async def _pending_sweep_job() -> None:
 
 
 def start_scheduler() -> None:
+    # One-time backfill + live snapshot at startup
+    scheduler.add_job(_startup, trigger="date", id="startup")
+    # Hourly snapshot
     scheduler.add_job(_hourly_snapshot, "interval", hours=1, id="hourly_snapshot")
-    scheduler.add_job(
-        _pending_sweep_job,
-        "interval",
-        hours=6,
-        id="pending_sweep",
-    )
+    # 6-hourly pending-attachment sweep
+    scheduler.add_job(_pending_sweep_job, "interval", hours=6, id="pending_sweep")
     scheduler.start()
 
 
