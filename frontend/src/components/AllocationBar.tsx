@@ -1,6 +1,6 @@
 import type { AssetPosition } from '../types'
 import { formatPct } from '../utils/pnl'
-import { getAssetColor } from '../utils/assetColors'
+import { colorForAsset } from '../utils/assetColors'
 
 interface Props {
   positions: AssetPosition[]
@@ -16,7 +16,7 @@ export default function AllocationBar({ positions }: Props) {
             key={p.asset}
             style={{
               width: `${p.allocation_pct}%`,
-              backgroundColor: getAssetColor(p.asset),
+              backgroundColor: colorForAsset(p.asset),
             }}
           />
         ))}
@@ -27,7 +27,7 @@ export default function AllocationBar({ positions }: Props) {
           <span key={p.asset} className="flex items-center gap-1.5">
             <span
               className="inline-block w-2 h-2 rounded-full"
-              style={{ backgroundColor: getAssetColor(p.asset) }}
+              style={{ backgroundColor: colorForAsset(p.asset) }}
             />
             <span className="text-txt-secondary font-medium">{p.asset}</span>
             <span className="text-txt-muted font-mono">{formatPct(p.allocation_pct)}</span>
