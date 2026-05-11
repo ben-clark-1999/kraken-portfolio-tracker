@@ -81,13 +81,17 @@ function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
   )
 }
 
+function roundOrNull(v: number | null): number | null {
+  return v === null ? null : Math.round(v)
+}
+
 export default function NetWorthChart({ snapshots }: Props) {
   const data = useMemo(
     () => snapshots.map(s => ({
       time: s.captured_at,
-      Total: Math.round(s.total),
-      Crypto: Math.round(s.crypto),
-      UP: Math.round(s.up),
+      Total: roundOrNull(s.total),
+      Crypto: roundOrNull(s.crypto),
+      UP: roundOrNull(s.up),
     })),
     [snapshots],
   )

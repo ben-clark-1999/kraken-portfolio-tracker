@@ -1,11 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import KpiTiles from '../components/combined/KpiTiles'
 import NetWorthChart from '../components/combined/NetWorthChart'
+import RangePicker, { type Range, RANGE_DAYS } from '../components/combined/RangePicker'
 import SyncStatusBanner from '../components/up/SyncStatusBanner'
 import { useUpSyncStatus } from '../hooks/useUpSyncStatus'
 import { fetchCombinedSummary, fetchCombinedSnapshots } from '../api/combined'
 import type { CombinedSummary, CombinedSnapshot } from '../types/up'
+
+function filterByRange(snapshots: CombinedSnapshot[], range: Range): CombinedSnapshot[] {
+  const days = RANGE_DAYS[range]
+  if (days === null) return snapshots
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - days)
+  return snapshots.filter(s => new Date(s.captured_at) >= cutoff)
+}
 
 export default function CombinedPage() {
   const sync = useUpSyncStatus()
@@ -13,6 +22,7 @@ export default function CombinedPage() {
   const [snapshots, setSnapshots] = useState<CombinedSnapshot[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [range, setRange] = useState<Range>('3M')
 
   useEffect(() => {
     let cancelled = false
@@ -31,35 +41,39 @@ export default function CombinedPage() {
     return () => { cancelled = true }
   }, [sync?.state])
 
+  const filteredSnapshots = useMemo(
+    () => filterByRange(snapshots, range),
+    [snapshots, range],
+  )
   const lastSnapshot = snapshots.length > 0 ? snapshots[snapshots.length - 1].captured_at : null
 
   return (
     <main className="min-h-screen bg-surface text-txt-primary font-sans">
       <div className="max-w-7xl mx-auto px-6">
 
-        {/* Sync banner — only renders when relevant */}
         {sync && sync.state !== 'ready' && (
           <div className="pt-6">
             <SyncStatusBanner status={sync} />
           </div>
         )}
 
-        {/* Hero — net worth */}
         <section className="pt-10 pb-12">
           <KpiTiles summary={summary} asOf={lastSnapshot} />
         </section>
 
-        {/* Net worth over time */}
         <section className="border-t border-surface-border pt-10 pb-16">
-          <div className="flex items-baseline justify-between mb-6">
-            <h2 className="text-sm font-medium uppercase tracking-wider text-txt-secondary">
-              Net worth over time
-            </h2>
-            <p className="text-xs font-medium text-txt-muted">
-              {snapshots.length > 0
-                ? `${snapshots.length} ${snapshots.length === 1 ? 'snapshot' : 'snapshots'}`
-                : ''}
-            </p>
+          <div className="flex items-baseline justify-between mb-6 gap-4 flex-wrap">
+            <div className="flex items-baseline gap-4">
+              <h2 className="text-sm font-medium uppercase tracking-wider text-txt-secondary">
+                Net worth over time
+              </h2>
+              <p className="text-xs font-medium text-txt-muted">
+                {filteredSnapshots.length > 0
+                  ? `${filteredSnapshots.length} ${filteredSnapshots.length === 1 ? 'snapshot' : 'snapshots'}`
+                  : ''}
+              </p>
+            </div>
+            <RangePicker value={range} onChange={setRange} />
           </div>
 
           {loading ? (
@@ -71,7 +85,7 @@ export default function CombinedPage() {
               Snapshots unavailable: {error}
             </div>
           ) : (
-            <NetWorthChart snapshots={snapshots} />
+            <NetWorthChart snapshots={filteredSnapshots} />
           )}
         </section>
 

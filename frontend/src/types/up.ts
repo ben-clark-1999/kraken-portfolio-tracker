@@ -37,9 +37,14 @@ export interface SyncStatus {
 
 export interface CombinedSnapshot {
   captured_at: string
-  crypto: number
-  up: number
-  total: number
+  /** Most-recent-known crypto value at this bucket; null only if no
+   *  crypto snapshot has occurred yet at or before this bucket. */
+  crypto: number | null
+  /** Most-recent-known UP value at this bucket; null only if no UP
+   *  snapshot has occurred yet at or before this bucket. */
+  up: number | null
+  /** crypto + up; null if either is null. */
+  total: number | null
 }
 
 export interface CombinedSummary {
