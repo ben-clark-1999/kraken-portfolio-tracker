@@ -12,34 +12,70 @@ export default function CombinedPage() {
   const [summary, setSummary] = useState<CombinedSummary | null>(null)
   const [snapshots, setSnapshots] = useState<CombinedSnapshot[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    setError(null)
     Promise.all([
       fetchCombinedSummary(),
       fetchCombinedSnapshots(),
     ]).then(([s, snaps]) => {
       if (cancelled) return
       setSummary(s); setSnapshots(snaps); setLoading(false)
-    }).catch(() => { if (!cancelled) setLoading(false) })
+    }).catch(e => {
+      if (cancelled) return
+      setError(e instanceof Error ? e.message : String(e))
+      setLoading(false)
+    })
     return () => { cancelled = true }
   }, [sync?.state])
 
+  const lastSnapshot = snapshots.length > 0 ? snapshots[snapshots.length - 1].captured_at : null
+
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
-      <h1 className="text-2xl font-semibold text-txt-primary">Combined Net Worth</h1>
-      <SyncStatusBanner status={sync} />
-      {loading ? (
-        <div className="text-sm text-txt-muted">Loading…</div>
-      ) : (
-        <>
-          <KpiTiles summary={summary} />
-          <section>
-            <h2 className="text-sm uppercase text-txt-secondary mb-3">Net worth over time</h2>
+    <main className="min-h-screen bg-surface text-txt-primary font-sans">
+      <div className="max-w-7xl mx-auto px-6">
+
+        {/* Sync banner — only renders when relevant */}
+        {sync && sync.state !== 'ready' && (
+          <div className="pt-6">
+            <SyncStatusBanner status={sync} />
+          </div>
+        )}
+
+        {/* Hero — net worth */}
+        <section className="pt-10 pb-12">
+          <KpiTiles summary={summary} asOf={lastSnapshot} />
+        </section>
+
+        {/* Net worth over time */}
+        <section className="border-t border-surface-border pt-10 pb-16">
+          <div className="flex items-baseline justify-between mb-6">
+            <h2 className="text-sm font-medium uppercase tracking-wider text-txt-secondary">
+              Net worth over time
+            </h2>
+            <p className="text-xs font-medium text-txt-muted">
+              {snapshots.length > 0
+                ? `${snapshots.length} ${snapshots.length === 1 ? 'snapshot' : 'snapshots'}`
+                : ''}
+            </p>
+          </div>
+
+          {loading ? (
+            <div className="h-72 flex items-center justify-start text-sm text-txt-muted animate-pulse-subtle">
+              Loading snapshots…
+            </div>
+          ) : error ? (
+            <div className="text-base text-loss" role="status" aria-live="polite">
+              Snapshots unavailable: {error}
+            </div>
+          ) : (
             <NetWorthChart snapshots={snapshots} />
-          </section>
-        </>
-      )}
-    </div>
+          )}
+        </section>
+
+      </div>
+    </main>
   )
 }

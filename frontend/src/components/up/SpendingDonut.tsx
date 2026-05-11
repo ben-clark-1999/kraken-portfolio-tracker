@@ -28,7 +28,7 @@ export default function SpendingDonut({ breakdown }: Props) {
             </Pie>
             <Tooltip
               contentStyle={{ background: '#1a1823', border: '1px solid #2a2735', fontSize: 12 }}
-              formatter={(v: number) => `$${v.toLocaleString('en-AU', { minimumFractionDigits: 2 })}`}
+              formatter={(v) => `$${Number(v).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`}
             />
           </PieChart>
         </ResponsiveContainer>
