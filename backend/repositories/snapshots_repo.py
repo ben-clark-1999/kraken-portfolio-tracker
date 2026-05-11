@@ -137,3 +137,18 @@ def clear(schema: str = "public") -> int:
         .gte("captured_at", "1970-01-01T00:00:00+00:00") \
         .execute()
     return len(result.data)
+
+
+def list_by_source(
+    *, source: str | None = None, since: str | None = None, schema: str = "public",
+) -> list[dict]:
+    """Raw rows by source, optionally filtered by captured_at >= since."""
+    db = get_supabase()
+    q = db.schema(schema).table("portfolio_snapshots").select(
+        "captured_at,total_value_aud,source"
+    ).order("captured_at", desc=False)
+    if source:
+        q = q.eq("source", source)
+    if since:
+        q = q.gte("captured_at", since)
+    return q.execute().data
