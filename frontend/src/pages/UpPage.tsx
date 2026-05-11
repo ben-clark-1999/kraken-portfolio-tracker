@@ -41,7 +41,7 @@ export default function UpPage() {
   }, [sync?.state])
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
+    <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
       <h1 className="text-2xl font-semibold text-txt-primary">UP Bank</h1>
       <SyncStatusBanner status={sync} />
 
