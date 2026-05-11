@@ -15,7 +15,7 @@ from backend.agent.prompts import CLASSIFIER_PROMPT
 class ClassifierOutput(BaseModel):
     """Structured output from the query classifier."""
 
-    primary_category: str = Field(description="One of: quick, analysis, tax, comparison, open")
+    primary_category: str = Field(description="One of: quick, analysis, tax, comparison, cash, open")
     confidence: float = Field(description="Confidence in primary classification, 0-1")
     secondary_categories: list[str] = Field(
         default_factory=list,

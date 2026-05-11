@@ -35,6 +35,13 @@ TOOL_SUBSETS: dict[str, list[str] | None] = {
         "get_buy_and_hold_comparison",
         "get_relative_performance",
     ],
+    "cash": [
+        "get_up_balance",
+        "get_up_spending_by_category",
+        "get_up_cashflow",
+        "get_up_recent_transactions",
+        "get_combined_net_worth",
+    ],
     "general": None,  # All tools
 }
 
@@ -56,5 +63,6 @@ CATEGORY_TO_NODE = {
     "analysis": "analysis_agent",
     "tax": "tax_agent",
     "comparison": "comparison_agent",
+    "cash": "cash_agent",
     "open": "general_agent",
 }

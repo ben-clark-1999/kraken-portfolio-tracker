@@ -98,14 +98,16 @@ Only include secondary_categories if another category is clearly relevant \
 (confidence >= 0.5).
 
 Categories:
-- quick: Simple factual lookups — portfolio value, balances, next DCA date, \
-total spent on an asset. Single tool call, instant answer.
-- analysis: Performance trends, strategy assessment, period comparisons, \
+- quick: Simple factual lookups about crypto holdings — portfolio value, \
+balances, next DCA date, total spent on an asset. Single tool call, instant answer.
+- analysis: Crypto performance trends, strategy assessment, period comparisons, \
 best/worst performers. May need 2-3 tool calls.
 - tax: Anything involving CGT, tax, ATO rules, discount eligibility, \
 financial year. Even if phrased casually.
 - comparison: Counterfactual questions — "would I have been better off", \
 "what if I'd done X instead", DCA vs lump-sum, buy-and-hold comparisons.
+- cash: Bank balances, cash flow, spending, "how much did I spend on X", \
+"how much money do I have", net worth across crypto + cash.
 - open: Vague, conversational, or cross-category — "what's going on", \
 "anything I should know", "give me the quick version".
 
