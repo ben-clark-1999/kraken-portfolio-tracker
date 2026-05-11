@@ -94,3 +94,45 @@ class UpClient:
                 ))
             url = payload.get("links", {}).get("next")
         return out
+
+    async def list_transactions(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        status: Literal["HELD", "SETTLED"] | None = None,
+    ) -> AsyncIterator[UpTransaction]:
+        url = f"{self.BASE}/transactions"
+        params: dict[str, str] = {}
+        if since:
+            params["filter[since]"] = since.isoformat()
+        if until:
+            params["filter[until]"] = until.isoformat()
+        if status:
+            params["filter[status]"] = status
+
+        first_page = True
+        while url:
+            payload = await self._request(url, params=params if first_page else None)
+            first_page = False
+            for row in payload["data"]:
+                attrs = row["attributes"]
+                rels = row.get("relationships", {})
+                category_data = rels.get("category", {}).get("data")
+                parent_data = rels.get("parentCategory", {}).get("data")
+                account_data = rels.get("account", {}).get("data") or {}
+                yield UpTransaction(
+                    id=row["id"],
+                    account_id=account_data.get("id", ""),
+                    status=attrs["status"],
+                    description=attrs["description"],
+                    message=attrs.get("message"),
+                    raw_text=attrs.get("rawText"),
+                    amount_value=float(attrs["amount"]["value"]),
+                    amount_currency=attrs["amount"]["currencyCode"],
+                    category_id=category_data["id"] if category_data else None,
+                    parent_category_id=parent_data["id"] if parent_data else None,
+                    created_at=datetime.fromisoformat(attrs["createdAt"]),
+                    settled_at=datetime.fromisoformat(attrs["settledAt"]) if attrs.get("settledAt") else None,
+                )
+            url = payload.get("links", {}).get("next")
