@@ -5,6 +5,7 @@ import { UNAUTHORIZED_EVENT } from './api/client'
 import { me } from './api/auth'
 import AppLayout from './components/AppLayout'
 import CryptoPage from './pages/CryptoPage'
+import UpPage from './pages/UpPage'
 import Login from './pages/Login'
 
 type AuthState = 'checking' | 'authenticated' | 'unauthenticated'
@@ -42,7 +43,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/crypto" replace />} />
           <Route path="/crypto" element={<CryptoPage onSignedOut={() => setAuth('unauthenticated')} />} />
           <Route path="/combined" element={<div className="p-6 text-txt-muted">Combined view — coming in Task 9</div>} />
-          <Route path="/up" element={<div className="p-6 text-txt-muted">UP Bank view — coming in Task 8</div>} />
+          <Route path="/up" element={<UpPage />} />
           <Route path="*" element={<Navigate to="/crypto" replace />} />
         </Routes>
       </AppLayout>
