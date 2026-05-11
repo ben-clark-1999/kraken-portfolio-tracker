@@ -383,3 +383,55 @@
     - carries_assets_from_previous
     - states_assumptions
     - no_recommendation
+
+# Cash / UP Bank path (5 — added in Phase 6, UP Bank integration)
+- id: q036
+  query: "How much cash do I have right now?"
+  expected_classification: cash
+  min_confidence: 0.80
+  expected_tools_any_of: [get_up_balance]
+  forbidden_tools: [get_portfolio_summary, get_balances]
+  judge_dimensions:
+    - cites_aud_value
+    - no_filler_preamble
+    - addresses_question
+
+- id: q037
+  query: "How much did I spend on Good Life last month?"
+  expected_classification: cash
+  min_confidence: 0.80
+  expected_tools_any_of: [get_up_spending_by_category]
+  forbidden_tools: [get_portfolio_summary]
+  judge_dimensions:
+    - cites_aud_value
+    - addresses_question
+
+- id: q038
+  query: "What was my income vs expenses in April?"
+  expected_classification: cash
+  min_confidence: 0.80
+  expected_tools_any_of: [get_up_cashflow]
+  forbidden_tools: [get_portfolio_summary]
+  judge_dimensions:
+    - cites_aud_value
+    - addresses_question
+
+- id: q039
+  query: "What's my total net worth across crypto and bank?"
+  expected_classification: cash
+  min_confidence: 0.75
+  expected_tools_any_of: [get_combined_net_worth]
+  forbidden_tools: []
+  judge_dimensions:
+    - cites_aud_value
+    - addresses_question
+
+- id: q040
+  query: "Show me my last few transactions."
+  expected_classification: cash
+  min_confidence: 0.80
+  expected_tools_any_of: [get_up_recent_transactions]
+  forbidden_tools: [get_portfolio_summary]
+  judge_dimensions:
+    - no_filler_preamble
+    - addresses_question
