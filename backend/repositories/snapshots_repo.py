@@ -92,6 +92,29 @@ def insert(
     }).execute()
 
 
+def insert_source_snapshot(
+    *,
+    captured_at: str,
+    total_value_aud: float,
+    source: str,
+    assets: dict | None = None,
+    schema: str = "public",
+) -> None:
+    """Insert a portfolio_snapshots row tagged with `source`.
+
+    For crypto, callers pass the existing `assets` JSON. For UP, `assets` is
+    None — we record only the total. The column is NOT NULL in the schema, so
+    we pass `{}` as the empty default.
+    """
+    db = get_supabase()
+    db.schema(schema).table("portfolio_snapshots").insert({
+        "captured_at": captured_at,
+        "total_value_aud": total_value_aud,
+        "source": source,
+        "assets": assets if assets is not None else {},
+    }).execute()
+
+
 def delete_today(schema: str = "public") -> None:
     """Delete all snapshots from today's UTC date.
 
