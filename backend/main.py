@@ -70,7 +70,7 @@ app.add_middleware(
 app.add_middleware(RequestIDMiddleware)
 app.add_exception_handler(Exception, handle_uncaught_exception)
 
-from backend.routers import agent, auth, history, portfolio, sync
+from backend.routers import agent, auth, history, portfolio, sync, up
 
 # Auth router is unprotected (login itself can't require auth)
 app.include_router(auth.router)
@@ -79,6 +79,8 @@ app.include_router(auth.router)
 app.include_router(portfolio.router, dependencies=[Depends(require_auth)])
 app.include_router(history.router, dependencies=[Depends(require_auth)])
 app.include_router(sync.router, dependencies=[Depends(require_auth)])
+
+app.include_router(up.router)
 
 # Agent router has both REST (per-route Depends) and a WebSocket
 # (inline cookie check that closes with application code 4401 on auth failure)

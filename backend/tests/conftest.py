@@ -38,3 +38,15 @@ def clean_test_tables(test_db: Client):
     _clean()
     yield
     _clean()
+
+
+@pytest.fixture
+def bypass_auth():
+    """Override the require_auth dependency for FastAPI tests so we don't
+    need a real JWT cookie. Restores the dependency on teardown."""
+    from backend.auth.dependencies import require_auth
+    from backend.main import app
+
+    app.dependency_overrides[require_auth] = lambda: None
+    yield
+    app.dependency_overrides.pop(require_auth, None)
