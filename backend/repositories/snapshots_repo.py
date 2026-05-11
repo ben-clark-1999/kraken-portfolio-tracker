@@ -1,4 +1,12 @@
-"""Data access for the `portfolio_snapshots` table."""
+"""Data access for the `portfolio_snapshots` table.
+
+Note on `source`: the table holds rows for both `crypto` and `up`. The
+crypto-specific functions in this module (`get_all`, `get_nearest`,
+`get_oldest`, `get_existing_dates`, `insert`, `delete_today`, `clear`)
+filter or default to `source='crypto'` so they remain backwards-
+compatible with callers that predate the source column. Use
+`insert_source_snapshot` and `list_by_source` for source-aware access.
+"""
 
 from datetime import datetime, timedelta, timezone
 
@@ -25,6 +33,7 @@ def get_all(
         db.schema(schema)
         .table("portfolio_snapshots")
         .select("*")
+        .eq("source", "crypto")
         .order("captured_at", desc=False)
     )
     if from_dt:
@@ -38,12 +47,12 @@ def get_nearest(target_dt: str, schema: str = "public") -> PortfolioSnapshot | N
     db = get_supabase()
     after = (
         db.schema(schema).table("portfolio_snapshots")
-        .select("*").gte("captured_at", target_dt)
+        .select("*").eq("source", "crypto").gte("captured_at", target_dt)
         .order("captured_at", desc=False).limit(1).execute()
     )
     before = (
         db.schema(schema).table("portfolio_snapshots")
-        .select("*").lt("captured_at", target_dt)
+        .select("*").eq("source", "crypto").lt("captured_at", target_dt)
         .order("captured_at", desc=True).limit(1).execute()
     )
     candidates = []
@@ -65,7 +74,8 @@ def get_oldest(schema: str = "public") -> PortfolioSnapshot | None:
     db = get_supabase()
     result = (
         db.schema(schema).table("portfolio_snapshots")
-        .select("*").order("captured_at", desc=False).limit(1).execute()
+        .select("*").eq("source", "crypto")
+        .order("captured_at", desc=False).limit(1).execute()
     )
     if result.data:
         return _parse_snapshot_row(result.data[0])
@@ -74,7 +84,10 @@ def get_oldest(schema: str = "public") -> PortfolioSnapshot | None:
 
 def get_existing_dates(schema: str = "public") -> set[str]:
     db = get_supabase()
-    result = db.schema(schema).table("portfolio_snapshots").select("captured_at").execute()
+    result = (
+        db.schema(schema).table("portfolio_snapshots")
+        .select("captured_at").eq("source", "crypto").execute()
+    )
     return {row["captured_at"][:10] for row in result.data}
 
 
@@ -89,6 +102,7 @@ def insert(
         "captured_at": captured_at,
         "total_value_aud": total_value_aud,
         "assets": assets_json,
+        "source": "crypto",
     }).execute()
 
 
@@ -116,24 +130,28 @@ def insert_source_snapshot(
 
 
 def delete_today(schema: str = "public") -> None:
-    """Delete all snapshots from today's UTC date.
+    """Delete today's CRYPTO snapshot.
 
-    Used by save_snapshot to prevent duplicate rows on server restart.
+    Used by the live save_snapshot path to prevent duplicate rows on server
+    restart. Source-scoped to `crypto` so it never wipes UP rows.
     """
     db = get_supabase()
     today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
     tomorrow = (datetime.now(tz=timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
     db.schema(schema).table("portfolio_snapshots") \
         .delete() \
+        .eq("source", "crypto") \
         .gte("captured_at", f"{today}T00:00:00+00:00") \
         .lt("captured_at", f"{tomorrow}T00:00:00+00:00") \
         .execute()
 
 
 def clear(schema: str = "public") -> int:
+    """Delete all CRYPTO snapshots. Source-scoped so UP rows survive."""
     db = get_supabase()
     result = db.schema(schema).table("portfolio_snapshots") \
         .delete() \
+        .eq("source", "crypto") \
         .gte("captured_at", "1970-01-01T00:00:00+00:00") \
         .execute()
     return len(result.data)

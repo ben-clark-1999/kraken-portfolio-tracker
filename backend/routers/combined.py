@@ -52,11 +52,13 @@ async def snapshots(since: str | None = None) -> list[dict]:
             last_crypto = bucket["crypto"]
         if "up" in bucket:
             last_up = bucket["up"]
-        total = (
-            last_crypto + last_up
-            if last_crypto is not None and last_up is not None
-            else None
-        )
+        # Total represents net worth: once EITHER source has been seen,
+        # treat the not-yet-seen source as $0 (it genuinely was). Before
+        # ANY source has been seen, total is null.
+        if last_crypto is None and last_up is None:
+            total: float | None = None
+        else:
+            total = (last_crypto or 0.0) + (last_up or 0.0)
         out.append({
             "captured_at": ts,
             "crypto": last_crypto,
