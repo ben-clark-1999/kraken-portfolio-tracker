@@ -34,18 +34,20 @@ def _row_to_tx(row: dict) -> UpTransaction:
         description=row["description"], message=row.get("message"), raw_text=row.get("raw_text"),
         amount_value=float(row["amount_value"]), amount_currency=row["amount_currency"],
         category_id=row.get("category_id"), parent_category_id=row.get("parent_category_id"),
-        created_at=row["created_at"],
-        settled_at=row.get("settled_at"),
+        created_at=datetime.fromisoformat(row["created_at"]),
+        settled_at=datetime.fromisoformat(row["settled_at"]) if row.get("settled_at") else None,
     )
 
 
 def list_recent(
-    *, limit: int = 50, since: datetime | None = None, schema: str = "public",
+    *, limit: int = 50, since: datetime | None = None, until: datetime | None = None, schema: str = "public",
 ) -> list[UpTransaction]:
     db = get_supabase()
     q = db.schema(schema).table("up_transactions").select("*").order("created_at", desc=True).limit(limit)
     if since:
         q = q.gte("created_at", since.isoformat())
+    if until:
+        q = q.lte("created_at", until.isoformat())
     return [_row_to_tx(r) for r in q.execute().data]
 
 
@@ -88,8 +90,7 @@ def cashflow_by_period(
     Bucketed in Python (not SQL) so we don't depend on Postgres date_trunc
     via supabase-py — keeps the repo backend-agnostic.
     """
-    rows = list_recent(limit=10_000, since=since, schema=schema)
-    rows = [r for r in rows if r.created_at <= until]
+    rows = list_recent(limit=10_000, since=since, until=until, schema=schema)
     buckets: dict[str, dict[str, float]] = defaultdict(lambda: {"income": 0.0, "expense": 0.0})
     for r in rows:
         key = _bucket_key(r.created_at, granularity)

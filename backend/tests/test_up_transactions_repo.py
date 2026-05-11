@@ -75,3 +75,22 @@ def test_spending_by_parent_category_excludes_inflows():
         schema=SCHEMA,
     )
     assert breakdown == {"good-life": 15.0}
+
+
+def test_row_to_tx_returns_aware_datetimes():
+    """Datetime values returned from _row_to_tx must be timezone-aware so
+    comparisons with max_created_at don't TypeError."""
+    up_transactions_repo.upsert_many([
+        UpTransaction(
+            id="t1", account_id="acct-1", status="SETTLED", description="Coffee",
+            amount_value=-5.5, category_id=None, parent_category_id=None,
+            created_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+            settled_at=datetime(2026, 4, 1, 1, tzinfo=timezone.utc),
+        ),
+    ], schema=SCHEMA)
+    txs = up_transactions_repo.list_recent(limit=10, schema=SCHEMA)
+    latest = up_transactions_repo.max_created_at(schema=SCHEMA)
+    assert txs[0].created_at.tzinfo is not None
+    assert txs[0].settled_at.tzinfo is not None
+    # Must be comparable without TypeError:
+    assert txs[0].created_at <= latest
