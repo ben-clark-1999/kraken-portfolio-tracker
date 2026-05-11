@@ -1,31 +1,40 @@
 import type { UpAccount } from '../../types/up'
 
-interface Props { accounts: UpAccount[] }
+interface Props {
+  accounts: UpAccount[]
+  /** When true, omit the per-account breakdown header (page already shows it). */
+  compact?: boolean
+}
 
 export default function AccountList({ accounts }: Props) {
   if (accounts.length === 0) {
     return <div className="text-sm text-txt-muted">No accounts yet.</div>
   }
-  const total = accounts.reduce((s, a) => s + a.balance_value, 0)
+  const sorted = [...accounts].sort((a, b) => b.balance_value - a.balance_value)
   return (
-    <div>
-      <div className="text-sm text-txt-secondary mb-1">Total cash</div>
-      <div className="text-3xl font-semibold mb-4 text-txt-primary">
-        ${total.toLocaleString('en-AU', { minimumFractionDigits: 2 })}
-      </div>
-      <div className="space-y-1">
-        {[...accounts].sort((a, b) => b.balance_value - a.balance_value).map(a => (
-          <div key={a.id} className="flex justify-between py-2 border-b border-surface-border">
-            <div>
-              <div className="text-sm text-txt-primary">{a.display_name}</div>
-              <div className="text-xs text-txt-muted">{a.account_type}</div>
-            </div>
-            <div className="font-mono text-sm text-txt-primary">
-              ${a.balance_value.toLocaleString('en-AU', { minimumFractionDigits: 2 })}
-            </div>
+    <div className="space-y-px">
+      {sorted.map((a, i) => (
+        <div
+          key={a.id}
+          className={
+            'flex items-baseline justify-between py-2.5' +
+            (i < sorted.length - 1 ? ' border-b border-surface-border' : '')
+          }
+        >
+          <div className="flex items-baseline gap-3">
+            <span className="text-sm text-txt-primary">{a.display_name}</span>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-txt-muted">
+              {a.account_type === 'TRANSACTIONAL' ? 'Spending' :
+               a.account_type === 'SAVER' ? 'Saver' :
+               a.account_type === 'HOME_LOAN' ? 'Home loan' :
+               a.account_type}
+            </span>
           </div>
-        ))}
-      </div>
+          <div className="font-mono text-sm text-txt-primary tabular-nums">
+            ${a.balance_value.toLocaleString('en-AU', { minimumFractionDigits: 2 })}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
