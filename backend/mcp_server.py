@@ -10,7 +10,7 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from backend.services import kraken_service, portfolio_service, snapshot_service, sync_service
 from backend.config.assets import ASSET_MAP
@@ -202,6 +202,97 @@ async def snapshots_30d_resource() -> str:
         snapshot_service.get_snapshots, from_dt=from_dt, to_dt=None
     )
     return json.dumps([s.model_dump() for s in snapshots], default=str)
+
+
+from backend.repositories import (
+    up_accounts_repo,
+    up_transactions_repo,
+)
+
+UP_SCHEMA = "public"
+
+
+def _crypto_value() -> float:
+    """Latest computed crypto portfolio value in AUD."""
+    return portfolio_service.build_summary().total_value_aud
+
+
+@mcp.tool()
+def get_up_balance() -> str:
+    """Current total cash across all UP accounts. Returns AUD figure with
+    per-account breakdown."""
+    accounts = up_accounts_repo.list_all(schema=UP_SCHEMA)
+    if not accounts:
+        return "No UP accounts found yet — sync may still be in progress."
+    total = sum(a.balance_value for a in accounts)
+    lines = [f"Total UP cash: ${total:,.2f} AUD"]
+    for a in sorted(accounts, key=lambda x: -x.balance_value):
+        lines.append(f"  - {a.display_name} ({a.account_type}): ${a.balance_value:,.2f}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def get_up_spending_by_category(since: str, until: str) -> str:
+    """Total spend (negative-amount transactions only) per parent category in
+    the given date range. ISO dates (YYYY-MM-DD or full ISO 8601)."""
+    since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+    until_dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
+    breakdown = up_transactions_repo.spending_by_parent_category(
+        since=since_dt, until=until_dt, schema=UP_SCHEMA,
+    )
+    if not breakdown:
+        return f"No spending recorded between {since} and {until}."
+    total = sum(breakdown.values())
+    lines = [f"Total spending {since} → {until}: ${total:,.2f} AUD"]
+    for cat, amt in sorted(breakdown.items(), key=lambda x: -x[1]):
+        lines.append(f"  - {cat}: ${amt:,.2f}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def get_up_cashflow(since: str, until: str, granularity: str = "month") -> str:
+    """Income vs expense per period. granularity: day | week | month."""
+    since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+    until_dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
+    rows = up_transactions_repo.cashflow_by_period(
+        since=since_dt, until=until_dt, granularity=granularity, schema=UP_SCHEMA,
+    )
+    if not rows:
+        return "No cashflow data in that period."
+    lines = [f"Cashflow {since} → {until} ({granularity}):"]
+    for r in rows:
+        lines.append(f"  {r['period']}: +${r['income']:,.2f} / -${r['expense']:,.2f}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def get_up_recent_transactions(limit: int = 10, since: str | None = None) -> str:
+    """Most recent transactions across accounts — for grounding context.
+    Not intended for transaction search."""
+    since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")) if since else None
+    txs = up_transactions_repo.list_recent(limit=limit, since=since_dt, schema=UP_SCHEMA)
+    if not txs:
+        return "No transactions found."
+    lines = [f"Most recent {len(txs)} transactions:"]
+    for t in txs:
+        lines.append(
+            f"  {t.created_at[:10] if isinstance(t.created_at, str) else t.created_at.date()}  "
+            f"{'−' if t.amount_value < 0 else '+'}${abs(t.amount_value):,.2f}  {t.description}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def get_combined_net_worth() -> str:
+    """Total net worth across crypto + UP cash. Returns AUD with breakdown."""
+    crypto = _crypto_value()
+    up_total = sum(a.balance_value for a in up_accounts_repo.list_all(schema=UP_SCHEMA))
+    total = crypto + up_total
+    return (
+        f"Total net worth: ${total:,.2f} AUD\n"
+        f"  Crypto: ${crypto:,.2f}\n"
+        f"  UP cash: ${up_total:,.2f}"
+    )
 
 
 if __name__ == "__main__":

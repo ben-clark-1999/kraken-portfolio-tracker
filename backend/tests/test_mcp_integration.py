@@ -25,6 +25,12 @@ async def test_mcp_server_lists_tools():
         "get_unrealised_cgt",
         "get_buy_and_hold_comparison",
         "get_relative_performance",
+        # UP Bank tools
+        "get_up_balance",
+        "get_up_spending_by_category",
+        "get_up_cashflow",
+        "get_up_recent_transactions",
+        "get_combined_net_worth",
     }
 
 
