@@ -88,3 +88,31 @@ def test_cashflow(monkeypatch, bypass_auth):
     assert resp.status_code == 200
     body = resp.json()
     assert body[-1]["expense"] == 30.0
+
+
+def test_sync_status_returns_latest(monkeypatch, bypass_auth):
+    monkeypatch.setattr("backend.routers.up.SCHEMA", SCHEMA)
+    db = get_supabase()
+    db.schema(SCHEMA).table("up_sync_log").delete().neq(
+        "id", "00000000-0000-0000-0000-000000000001"
+    ).execute()
+    from backend.repositories import up_sync_log_repo
+    sid = up_sync_log_repo.record_start(schema=SCHEMA)
+    resp = client.get("/api/up/sync/status")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["state"] == "syncing"
+    up_sync_log_repo.finalize_success(sid, last_seen_tx_at=None, schema=SCHEMA)
+    resp = client.get("/api/up/sync/status")
+    assert resp.json()["state"] == "ready"
+
+
+def test_sync_retry_returns_202(monkeypatch, bypass_auth):
+    captured: list[bool] = []
+
+    async def fake_sync():
+        captured.append(True)
+
+    monkeypatch.setattr("backend.routers.up.up_sync_service.sync", fake_sync)
+    resp = client.post("/api/up/sync/retry")
+    assert resp.status_code == 202

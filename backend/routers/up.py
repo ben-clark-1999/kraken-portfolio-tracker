@@ -2,10 +2,11 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from backend.auth.dependencies import require_auth
-from backend.repositories import up_accounts_repo, up_transactions_repo
+from backend.repositories import up_accounts_repo, up_sync_log_repo, up_transactions_repo
+from backend.services import up_sync_service
 
 router = APIRouter(prefix="/api/up", tags=["up"], dependencies=[Depends(require_auth)])
 
@@ -53,3 +54,24 @@ async def cashflow(since: str, until: str, granularity: str = "month") -> list[d
         granularity=granularity,
         schema=SCHEMA,
     )
+
+
+_STATE_MAP = {"in_progress": "syncing", "success": "ready", "error": "error"}
+
+
+@router.get("/sync/status")
+async def sync_status() -> dict:
+    latest = up_sync_log_repo.latest(schema=SCHEMA)
+    if latest is None:
+        return {"state": "ready", "last_synced_at": None, "error": None}
+    return {
+        "state": _STATE_MAP.get(latest["status"], "ready"),
+        "last_synced_at": latest.get("synced_at"),
+        "error": latest.get("error_message"),
+    }
+
+
+@router.post("/sync/retry", status_code=status.HTTP_202_ACCEPTED)
+async def sync_retry(background: BackgroundTasks) -> dict:
+    background.add_task(up_sync_service.sync)
+    return {"queued": True}
