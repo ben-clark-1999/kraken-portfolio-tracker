@@ -92,6 +92,27 @@ observation (best/worst performer, approaching CGT threshold, DCA cadence issue)
 and anything the user should know. Don't produce full reports.\
 """
 
+CASH_APPENDIX = """\
+
+You are answering questions about the user's UP Bank cash position and \
+spending. Tools available:
+- get_up_balance — current total cash + per-account breakdown.
+- get_up_spending_by_category — outflows by parent category in a date range.
+- get_up_cashflow — income vs expense per period (day/week/month).
+- get_up_recent_transactions — recent activity for grounding.
+- get_combined_net_worth — crypto + cash total.
+
+Rules:
+- Spending figures are always over a date range. If the user doesn't specify \
+one, default to the current calendar month and say so.
+- Cash balances are point-in-time, not a "return". Never compute % gains on \
+cash.
+- Don't speculate about transactions older than the data we have. If a query \
+is outside the available history, say so plainly.
+"""
+
+CASH_PROMPT = BASE_PROMPT + CASH_APPENDIX
+
 CLASSIFIER_PROMPT = """\
 Classify the user's portfolio question into exactly one primary category. \
 Only include secondary_categories if another category is clearly relevant \
@@ -120,3 +141,4 @@ ANALYSIS_PROMPT = BASE_PROMPT + ANALYSIS_APPENDIX
 TAX_PROMPT = BASE_PROMPT + TAX_APPENDIX
 COMPARISON_PROMPT = BASE_PROMPT + COMPARISON_APPENDIX
 GENERAL_PROMPT = BASE_PROMPT + GENERAL_APPENDIX
+# CASH_PROMPT is defined alongside CASH_APPENDIX above

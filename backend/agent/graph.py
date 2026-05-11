@@ -20,6 +20,7 @@ from backend.agent.agent_config import (
 from backend.agent.classifier import ClassifierOutput, classify, route_query
 from backend.agent.prompts import (
     ANALYSIS_PROMPT,
+    CASH_PROMPT,
     COMPARISON_PROMPT,
     GENERAL_PROMPT,
     QUICK_PROMPT,
@@ -172,6 +173,7 @@ def build_graph(all_tools: list[BaseTool], checkpointer) -> "CompiledGraph":
     analysis_tools = filter_tools(all_tools, "analysis")
     tax_tools = filter_tools(all_tools, "tax")
     comparison_tools = filter_tools(all_tools, "comparison")
+    cash_tools = filter_tools(all_tools, "cash")
 
     # ── Node functions ──────────────────────────────────────────────
 
@@ -199,6 +201,11 @@ def build_graph(all_tools: list[BaseTool], checkpointer) -> "CompiledGraph":
             state, config, comparison_tools, COMPARISON_PROMPT, hitl_mode="all"
         )
 
+    async def cash_agent(state: AgentState, config: RunnableConfig) -> dict:
+        return await _run_agent_loop(
+            state, config, cash_tools, CASH_PROMPT, hitl_mode="none"
+        )
+
     async def general_agent(state: AgentState, config: RunnableConfig) -> dict:
         return await _run_agent_loop(
             state, config, all_tools, GENERAL_PROMPT, hitl_mode="selective"
@@ -213,6 +220,7 @@ def build_graph(all_tools: list[BaseTool], checkpointer) -> "CompiledGraph":
     builder.add_node("analysis_agent", analysis_agent)
     builder.add_node("tax_agent", tax_agent)
     builder.add_node("comparison_agent", comparison_agent)
+    builder.add_node("cash_agent", cash_agent)
     builder.add_node("general_agent", general_agent)
 
     builder.set_entry_point("classify_query")
@@ -225,6 +233,7 @@ def build_graph(all_tools: list[BaseTool], checkpointer) -> "CompiledGraph":
             "analysis_agent": "analysis_agent",
             "tax_agent": "tax_agent",
             "comparison_agent": "comparison_agent",
+            "cash_agent": "cash_agent",
             "general_agent": "general_agent",
         },
     )
@@ -233,6 +242,7 @@ def build_graph(all_tools: list[BaseTool], checkpointer) -> "CompiledGraph":
     builder.add_edge("analysis_agent", END)
     builder.add_edge("tax_agent", END)
     builder.add_edge("comparison_agent", END)
+    builder.add_edge("cash_agent", END)
     builder.add_edge("general_agent", END)
 
     return builder.compile(checkpointer=checkpointer)
