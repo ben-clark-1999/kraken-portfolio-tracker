@@ -1,6 +1,7 @@
 """Pydantic models for UP Bank API resources."""
 
 from datetime import datetime
+from typing import Literal
 from pydantic import BaseModel
 
 
@@ -33,3 +34,15 @@ class UpTransaction(BaseModel):
     parent_category_id: str | None = None
     created_at: datetime
     settled_at: datetime | None = None
+
+
+class RecurringCharge(BaseModel):
+    """A recurring outflow subscription detected from the transaction log."""
+    name: str
+    sample_description: str
+    cadence: Literal["weekly", "fortnightly", "monthly", "yearly"]
+    median_amount: float  # positive — outflow magnitude
+    last_charged_at: datetime
+    next_expected_at: datetime
+    occurrence_count: int
+    monthly_equivalent: float  # cadence-normalised cost for sorting + aggregation
