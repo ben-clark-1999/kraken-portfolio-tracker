@@ -13,17 +13,17 @@ import { useAgentChat } from '../hooks/useAgentChat'
 import { SERVER_ERROR_EVENT, type ServerErrorDetail } from '../api/client'
 import ErrorBanner from '../components/ErrorBanner'
 
-interface DashboardErrors {
+interface CryptoPageErrors {
   summary?: string
   snapshots?: string
   dca?: string
 }
 
-interface DashboardState {
+interface CryptoPageState {
   summary: PortfolioSummary | null
   snapshots: PortfolioSnapshot[]
   dcaHistory: DCAEntry[]
-  errors: DashboardErrors
+  errors: CryptoPageErrors
 }
 
 function errMsg(reason: unknown): string {
@@ -47,12 +47,12 @@ function filterByRange(snapshots: PortfolioSnapshot[], range: Range): PortfolioS
   return snapshots.filter((s) => new Date(s.captured_at) >= cutoff)
 }
 
-interface DashboardProps {
+interface CryptoPageProps {
   onSignedOut: () => void
 }
 
-export default function Dashboard({ onSignedOut }: DashboardProps) {
-  const [state, setState] = useState<DashboardState>({
+export default function CryptoPage({ onSignedOut }: CryptoPageProps) {
+  const [state, setState] = useState<CryptoPageState>({
     summary: null,
     snapshots: [],
     dcaHistory: [],
@@ -66,7 +66,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps) {
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
-    const errors: DashboardErrors = {}
+    const errors: CryptoPageErrors = {}
 
     const [summaryResult, snapshotsResult, dcaResult] = await Promise.allSettled([
       fetchPortfolioSummary(),
