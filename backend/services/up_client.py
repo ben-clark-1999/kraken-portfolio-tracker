@@ -64,6 +64,18 @@ class UpClient:
                 raise UpClientError(f"Unexpected UP API status {resp.status_code}: {resp.text[:200]}")
             raise UpClientError("UP request loop exited unexpectedly")
 
+    async def list_categories(self) -> list[UpCategory]:
+        payload = await self._request(f"{self.BASE}/categories")
+        out: list[UpCategory] = []
+        for row in payload["data"]:
+            parent_data = row.get("relationships", {}).get("parent", {}).get("data")
+            out.append(UpCategory(
+                id=row["id"],
+                name=row["attributes"]["name"],
+                parent_id=parent_data["id"] if parent_data else None,
+            ))
+        return out
+
     async def list_accounts(self) -> list[UpAccount]:
         url = f"{self.BASE}/accounts"
         out: list[UpAccount] = []
