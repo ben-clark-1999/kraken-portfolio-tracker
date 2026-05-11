@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { UNAUTHORIZED_EVENT } from './api/client'
 import { me } from './api/auth'
 import AppLayout from './components/AppLayout'
+import CombinedPage from './pages/CombinedPage'
 import CryptoPage from './pages/CryptoPage'
 import UpPage from './pages/UpPage'
 import Login from './pages/Login'
@@ -40,11 +41,11 @@ export default function App() {
     <BrowserRouter>
       <AppLayout>
         <Routes>
-          <Route path="/" element={<Navigate to="/crypto" replace />} />
+          <Route path="/" element={<Navigate to="/combined" replace />} />
+          <Route path="/combined" element={<CombinedPage />} />
           <Route path="/crypto" element={<CryptoPage onSignedOut={() => setAuth('unauthenticated')} />} />
-          <Route path="/combined" element={<div className="p-6 text-txt-muted">Combined view — coming in Task 9</div>} />
           <Route path="/up" element={<UpPage />} />
-          <Route path="*" element={<Navigate to="/crypto" replace />} />
+          <Route path="*" element={<Navigate to="/combined" replace />} />
         </Routes>
       </AppLayout>
     </BrowserRouter>
