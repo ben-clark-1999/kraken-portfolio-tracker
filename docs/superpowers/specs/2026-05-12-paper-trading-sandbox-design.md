@@ -126,12 +126,12 @@ has an honest answer.
 | 5 | Universe = ETH/AUD, LINK/AUD, ADA/AUD, SOL/AUD; no BTC, no USD pairs | User preference; all four verified tradable at AUD 1k capital against the 5%-of-max-position rule. |
 | 6 | DCA-Baseline weights ETH 50 / SOL 25 / LINK 15 / ADA 10 | User's stated conviction ordering ETH > SOL > LINK > ADA. Captured to prevent future "wait, why not equal-weight?" confusion. |
 | 7 | ETH-tilt enforced only on the baseline, not on smart strategies | Smart strategies need room to find edge in any pair; otherwise they're just "DCA-Baseline with timing." |
-| 8 | Symmetric risk caps on smart strategies (30%/asset, 60%/total crypto) | Bounded but not strangled. Auto-pause on 25% drawdown or AUD 50/day loss. |
+| 8 | Symmetric risk caps on smart strategies (30%/asset, 60%/total crypto) | Bounded but not strangled. Auto-pause on 25% drawdown or AUD 100/day loss (10% of starting equity, fixed). |
 | 9 | One `OrderExecutor` Protocol shared by paper and live | Same strategy/agent code runs in both modes; cleaner than parallel interfaces. |
 | 10 | Parallel `live_*` tables when going live (not a `mode` column) | Prevents cross-mode joins from accidentally mixing real and paper data. |
 | 11 | Equal-weight basket benchmark **rebalanced monthly** | Buy-and-hold would drift toward whichever coin pumped hardest, making the benchmark "lucky." Monthly rebalance keeps it honest. |
 | 12 | Two benchmark lines on the chart (BTC HODL + same-universe basket), not one | BTC HODL answers "did crypto win?"; same-universe basket answers "did your strategy add value within your chosen universe?" Both are needed. |
-| 13 | Kraken Pro Starter fees (**0.25% maker / 0.40% taker**) — verified against kraken.com/features/fee-schedule | Realistic for sub-$10k 30-day volume. Using a deeper-tier fee would flatter strategies in paper that won't hold up live. |
+| 13 | Kraken Pro spot fees — **0.25% maker / 0.40% taker** (lowest 30-day USD volume tier) — verified against kraken.com/features/fee-schedule | Realistic for a single-user retail account. Kraken doesn't give the entry tier a named label; we identify it by volume threshold. Using a deeper-tier fee would flatter strategies in paper that won't hold up live. |
 | 14 | Limit-order TTL **24 h** default | Long enough for overnight, short enough to avoid stale orders firing on day-old logic. Overridable per order. |
 | 15 | Rate cap **10 LLM calls/h/strategy** | Caps worst-case LLM cost at ~AUD 30–45/month across the three strategies (DCA-Baseline doesn't count). Tunable. |
 | 16 | Min-order runtime check + drop on failure | Defensive: Kraken `ordermin × current_price` > 5% of max position → pair removed from `allowed_pairs` at strategy startup, system alert raised. As of 2026-05-12 all four pairs pass. |
@@ -139,6 +139,9 @@ has an honest answer.
 | 18 | Persona-prompt-hash captured on every `agent_decisions` row | Lets you correlate performance with a specific prompt version after iteration. |
 | 19 | Token + cost attribution from day one | `model`, `input_tokens`, `output_tokens`, `cost_aud` on every `agent_decisions` row. Per-strategy cost roll-up surfaces on the leaderboard. |
 | 20 | Property-based tests on risk caps; explicit boundary tests on kill criteria | These are the load-bearing pieces of the discipline story — generic example-based tests miss edge cases. |
+| 21 | `max_order_aud (250)` deliberately less than `max_single_asset_aud (300)` | Forces every position to be built in ≥ 2 orders. Free risk-management discipline: the strategy gets a chance to abort entry on adverse moves after the first chunk fills. Not a typo. |
+| 22 | Daily loss cap is **fixed at AUD 100** (10% of starting equity), not a moving fraction of current equity | A strategy that's already down shouldn't *also* lose budget headroom. Fixed cap is predictable and forgiving; moving cap compounds penalties on a bad day. |
+| 23 | Persona prompt iteration: continuous strategy + vertical chart markers + `persona_prompt_stable_since` timestamp | Equity curves stay continuous (no archive-respawn churn), but leaderboard return columns annotate "stable since <date>" so metrics over a window that straddles a prompt change are honestly labelled. |
 
 ---
 
@@ -268,6 +271,7 @@ One row per strategy.
 | `status` | enum (`active`, `paused`, `archived`) | Loop reads before every invocation |
 | `dry_run` | bool | If true, decisions are written but executor is not called |
 | `created_at` | timestamptz | |
+| `persona_prompt_stable_since` | timestamptz nullable | Set to the persona file's git timestamp when the strategy is first created; updated whenever a new invocation detects a different `persona_prompt_hash` than the prior one. Null for `deterministic` strategies. Surfaced as a "stable since" annotation on leaderboard return cells when the window straddles this timestamp |
 | `updated_at` | timestamptz | |
 
 ### 4.2 `paper_orders`
@@ -510,8 +514,10 @@ because we used a constant slippage." Thin AUD books on Kraken
 
 ### 5.4 Fee schedule
 
-Source: kraken.com/features/fee-schedule. **Pro Starter** (sub-$10k
-30-day USD volume — the realistic deploy tier):
+Source: kraken.com/features/fee-schedule. **Lowest 30-day USD
+volume tier on Kraken Pro spot** — the realistic deploy tier for a
+single-user retail account. Kraken doesn't give the entry tier a
+named label; we just identify it by the volume threshold.
 
 ```python
 @dataclass(frozen=True)
@@ -519,7 +525,7 @@ class FeeSchedule:
     maker_bps: int   # basis points; 1 bp = 0.01%
     taker_bps: int
 
-KRAKEN_PRO_STARTER = FeeSchedule(maker_bps=25, taker_bps=40)
+KRAKEN_PRO_SPOT_TIER_1 = FeeSchedule(maker_bps=25, taker_bps=40)
 ```
 
 Fee per fill = `qty × price × (bps / 10_000)`. Stored on each
@@ -649,10 +655,12 @@ async def strategy_loop(strategy_id: UUID):
         if strategy.status != "active":
             continue
 
-        if not state.should_fire(event, strategy.trigger_config):
-            continue   # debounced, cooled-down, or rate-capped
-
-        state.record_invocation()
+        # Throttling only applies to llm_agent strategies — deterministic
+        # strategies are cheap, predictable, and must run on schedule.
+        if strategy.execution_mode == "llm_agent":
+            if not state.should_fire(event, strategy.trigger_config):
+                continue   # debounced, cooled-down, or rate-capped
+            state.record_invocation()
 
         try:
             if strategy.execution_mode == "llm_agent":
@@ -760,18 +768,40 @@ still written so the audit story stays uniform.
 
 ### 6.5 Activity model & cost ballpark
 
-With v1 defaults (3 strategies, 10 LLM calls/h cap, 15-min cooldown):
+With v1 defaults (3 strategies, 10 LLM calls/h hard cap, 15-min
+cooldown effectively reduces the practical ceiling to ~4 calls/h):
 
 - DCA-Baseline: 2 invocations/month → AUD 0 LLM cost.
-- Trend-Follower: ~10–20 invocations/day → ~AUD 0.50–1.50/day.
-- Mean-Reverter: ~10–20 invocations/day → ~AUD 0.50–1.50/day.
+- Trend-Follower: ~25–35 invocations/day expected (24 heartbeats +
+  a handful of breakout events) → ~AUD 1–2/day.
+- Mean-Reverter: ~25–35 invocations/day expected (24 heartbeats +
+  a handful of stretch events) → ~AUD 1–2/day.
 
-**Worst-case (rate cap saturated 24/7):** 3 × 10 × 24 × ~AUD 0.05 ≈
-AUD 36/day = AUD 1080/month. Won't happen in practice (cooldown
-prevents most ticks from firing) — but the rate cap is the hard
-ceiling so the worst case is bounded.
+**Cooldown-bounded ceiling per strategy:** 4/h × 24 h = 96/day.
+2 LLM strategies × 96 × 30 = ~5,800 calls/month. At realistic
+~AUD 0.04/call (Sonnet 4.6, ~5k input + ~1k output tokens): the
+ceiling is **~AUD 230/month** if the system is genuinely saturating
+the cooldown.
 
-**Realistic monthly LLM spend at v1 defaults:** AUD 30–45.
+**Hard rate-cap ceiling:** 2 × 10 × 24 × 30 × AUD 0.04 ≈ AUD 580/month.
+Won't happen in practice (cooldown prevents this) but documented so
+the bound is known.
+
+**Realistic monthly LLM spend at v1 defaults: AUD 40–70.** This
+is more conservative than the AUD 30–45 figure in earlier drafts —
+the cooldown still bites, but heartbeats alone produce more
+invocations than the lower estimate assumed.
+
+**Knobs if the bill drifts:**
+
+- Switch persona's `model_preference` to `claude-haiku-4-5`
+  (~5× cheaper than Sonnet for most decisions).
+- Tighten cooldown to 30 or 60 min.
+- Lower rate cap from 10/h to 5/h.
+
+The cost-attribution columns on `agent_decisions` (§4.5, §7.4) are
+how this estimate gets validated — first week of real data will
+narrow the band to a specific number per persona.
 
 ---
 
@@ -913,6 +943,15 @@ Columns:
 - `Trades` = count of `paper_orders` in the period (one
   user-intended action = one trade, even if it walked multiple book
   levels and produced several `paper_fills` rows).
+- **Return columns (7d %, 30d %, All-time %) annotate prompt
+  stability.** If `strategies.persona_prompt_stable_since` falls
+  inside the period being shown, the cell renders with a small
+  "since <date>" footnote. Example: a 30d % cell whose persona
+  was rewritten 12 days ago shows the 30d number with "*stable
+  since 2026-04-30*" — so the reader knows the metric straddles
+  a prompt change and isn't a clean apples-to-apples comparison.
+  Deterministic strategies (DCA-Baseline) have no annotation
+  (`persona_prompt_stable_since` is null).
 - `Cost AUD (30d)` = sum from `paper_strategy_costs`. Zero for
   deterministic. Surfaces fee-vs-return ratio in tooltip.
 - `Status` = green dot (`active`), yellow (`paused`), grey (`archived`).
@@ -1027,7 +1066,7 @@ Example:
 {
   "auto_pause_when": [
     { "metric": "drawdown_pct", "op": ">=", "value": 25.0 },
-    { "metric": "daily_loss_aud", "op": ">=", "value": 50.0 },
+    { "metric": "daily_loss_aud", "op": ">=", "value": 100.0 },
     { "metric": "trailing_30d_sharpe", "op": "<", "value": -0.5 }
   ]
 }
@@ -1050,6 +1089,10 @@ The system enforces it; you can't talk yourself out of it later.
 - **Trailing 30d Sharpe.** Annualised on a 24/7 basis (daily
   returns × √365). Computed from hourly snapshots aggregated to
   daily.
+- **`daily_loss_cap_aud`.** **Fixed at AUD 100** (10 % of starting
+  equity), not a moving fraction of current equity. Reasoning in
+  decision-log row 22: a strategy that's already down shouldn't
+  *also* lose budget headroom.
 
 ### 9.6 Alert channel
 
@@ -1253,11 +1296,11 @@ The reference table. Source of truth lives in code (`backend/app/trading/default
 | `max_single_asset_pct` | 30% |
 | `max_total_crypto_exposure_pct` | 60% |
 | `max_order_aud` | AUD 250 |
-| `daily_loss_cap_aud` | AUD 50 (5% of 1k) |
-| `max_drawdown_pct_before_pause` | 25% |
+| `daily_loss_cap_aud` | AUD 100 (10% of starting equity, fixed — not a moving fraction of current) |
+| `max_drawdown_pct_before_pause` | 25% (all-time, never resets) |
 | Limit-order TTL | 24 h |
 | Min-order threshold | 5% of max position (= AUD 15 at v1) |
-| Fees (Kraken Pro Starter) | 0.25% maker / 0.40% taker |
+| Fees (Kraken Pro spot, lowest 30-day USD volume tier) | 0.25% maker / 0.40% taker |
 | Throttling — debounce | 5 s |
 | Throttling — cooldown | 15 min |
 | Throttling — rate cap | 10 LLM calls / h / `llm_agent` strategy |
@@ -1265,7 +1308,7 @@ The reference table. Source of truth lives in code (`backend/app/trading/default
 | Equity snapshot cadence | Hourly |
 | Benchmarks on chart | BTC/AUD HODL + equal-weight ETH/LINK/ADA/SOL (monthly rebalance) |
 | Side-rail nav | Top-level "Strategies" |
-| Realistic monthly LLM spend | AUD 30–45 (v1 defaults; can drop further by switching to Haiku) |
+| Realistic monthly LLM spend | **AUD 40–70** at v1 defaults (Sonnet 4.6, ~25–35 invocations/day per LLM strategy). Cooldown-bounded ceiling ~AUD 230/month. Drop to ~AUD 10–15/month by switching `model_preference` to `claude-haiku-4-5` |
 
 ---
 
@@ -1283,18 +1326,11 @@ The reference table. Source of truth lives in code (`backend/app/trading/default
 3. **Whether to support `iceberg` or `post-only` order modifiers.**
    Out of v1 scope; flag if Trend-Follower or Mean-Reverter start
    needing them.
-4. **Persona prompt iteration discipline.** When we tweak
-   `trend-follower.md`, do we automatically archive the running
-   strategy and spin up a fresh one (so the equity curve isn't
-   continuous across prompt versions)? Or keep the strategy and rely
-   on `persona_prompt_hash` to segment the curve?  Recommendation:
-   keep the strategy continuous, draw a vertical marker on the chart
-   at each prompt-hash change. Decide at implementation time.
-5. **Whether the "Personal DCA Shadow" persona is worth adding once
+4. **Whether the "Personal DCA Shadow" persona is worth adding once
    v1 is live.** Would track real-life BTC/USDT DCA for comparison.
    Useful but conceptually separate from "did the bots beat
    intra-universe passive."
-6. **Whether dry-run mode should affect benchmark calculation.**
+5. **Whether dry-run mode should affect benchmark calculation.**
    Probably not (benchmarks are universe-level, not strategy-level)
    but worth being explicit at implementation.
 
