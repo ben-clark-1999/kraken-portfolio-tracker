@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -79,6 +80,11 @@ def parse_trade_message(msg: dict) -> TickEvent:
 # ─────────────────────────── Live feed task ────────────────────
 
 class PriceFeed:
+    # While compute_checksum runs without per-pair precision metadata
+    # it drifts every diff (see docs/manual-smoke-strategies.md §11).
+    # Rate-limit the warning so logs stay readable in production.
+    _CHECKSUM_LOG_INTERVAL_S = 60.0
+
     def __init__(
         self,
         *,
@@ -90,6 +96,7 @@ class PriceFeed:
         self.bus = bus or get_default_bus()
         self.executor = executor
         self.books: dict[str, LocalOrderBook] = {p: LocalOrderBook(p) for p in pairs}
+        self._drift_last_logged: dict[str, float] = {}
         if self.executor is not None:
             for p, b in self.books.items():
                 self.executor.attach_book(p, b)
@@ -152,7 +159,11 @@ class PriceFeed:
                     # pair's pair_decimals / lot_decimals from AssetPairs to
                     # match Kraken's algorithm — tracked in
                     # docs/manual-smoke-strategies.md §11.
-                    logger.warning("Order book checksum drift: %s", e)
+                    now_mono = time.monotonic()
+                    last = self._drift_last_logged.get(pair, 0.0)
+                    if now_mono - last >= self._CHECKSUM_LOG_INTERVAL_S:
+                        logger.warning("Order book checksum drift: %s", e)
+                        self._drift_last_logged[pair] = now_mono
                 except Exception:
                     logger.exception("Order book update failed on %s — resubscribing", pair)
                     raise   # the outer loop reconnects
