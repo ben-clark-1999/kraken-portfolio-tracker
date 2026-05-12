@@ -111,3 +111,93 @@ def compute_cv(amounts: list[float]) -> float:
 def monthly_equivalent(amount: float, cadence: Cadence) -> float:
     """Convert a per-cycle amount to its monthly-equivalent cost."""
     return amount * CYCLES_PER_MONTH[cadence]
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timedelta, timezone  # noqa: E402 — after constants
+
+from backend.db.supabase_client import get_supabase
+from backend.models.up import RecurringCharge
+
+
+def _title_case(s: str) -> str:
+    """Title-case but preserve all-caps acronyms up to 4 chars."""
+    return " ".join(
+        w if w.isupper() and len(w) <= 4 else w.title()
+        for w in s.split()
+    )
+
+
+def find_recurring(schema: str = "public") -> list[RecurringCharge]:
+    """Detect recurring outflow subscriptions.
+
+    See docs/superpowers/specs/2026-05-12-recurring-charges-design.md.
+    """
+    db = get_supabase()
+    rows = (
+        db.schema(schema).table("up_transactions")
+        .select("description,amount_value,created_at")
+        .lt("amount_value", 0)
+        .order("created_at", desc=False)
+        .execute().data
+    )
+
+    # Group by normalised description.
+    groups: dict[str, list[tuple[datetime, float, str]]] = defaultdict(list)
+    for r in rows:
+        norm = normalise(r["description"])
+        if not norm:
+            continue
+        ts = datetime.fromisoformat(r["created_at"])
+        amt = abs(float(r["amount_value"]))
+        groups[norm].append((ts, amt, r["description"]))
+
+    now = datetime.now(timezone.utc)
+    out: list[RecurringCharge] = []
+
+    for norm, entries in groups.items():
+        if len(entries) < 2:  # need ≥1 interval to classify
+            continue
+        entries.sort(key=lambda x: x[0])
+        timestamps = [e[0] for e in entries]
+        amounts = [e[1] for e in entries]
+
+        intervals = [
+            (timestamps[i + 1] - timestamps[i]).days
+            for i in range(len(timestamps) - 1)
+        ]
+        cadence = classify_cadence(intervals)
+        if cadence is None:
+            continue
+
+        min_occ = MIN_OCCURRENCES_YEARLY if cadence == "yearly" else MIN_OCCURRENCES_SUB_YEARLY
+        if len(entries) < min_occ:
+            continue
+
+        med = median(amounts)
+        if med <= 0:
+            continue
+        if compute_cv(amounts) > MAX_CV:
+            continue
+
+        last_charged = timestamps[-1]
+        if now - last_charged > timedelta(days=2 * CADENCE_DAYS[cadence]):
+            continue
+
+        next_expected = last_charged + timedelta(days=CADENCE_DAYS[cadence])
+        out.append(RecurringCharge(
+            name=_title_case(norm),
+            sample_description=entries[-1][2],
+            cadence=cadence,
+            median_amount=round(med, 2),
+            last_charged_at=last_charged,
+            next_expected_at=next_expected,
+            occurrence_count=len(entries),
+            monthly_equivalent=round(monthly_equivalent(med, cadence), 2),
+        ))
+
+    out.sort(key=lambda r: r.monthly_equivalent, reverse=True)
+    return out
