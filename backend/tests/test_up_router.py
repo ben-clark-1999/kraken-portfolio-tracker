@@ -116,3 +116,41 @@ def test_sync_retry_returns_202(monkeypatch, bypass_auth):
     monkeypatch.setattr("backend.routers.up.up_sync_service.sync", fake_sync)
     resp = client.post("/api/up/sync/retry")
     assert resp.status_code == 202
+
+
+from datetime import timedelta as _td
+from backend.models.up import UpAccount as _UpA, UpTransaction as _UpT
+
+
+def test_recurring_endpoint(monkeypatch, bypass_auth):
+    db = get_supabase()
+    db.schema(SCHEMA).table("up_transactions").delete().neq("id", "").execute()
+    db.schema(SCHEMA).table("up_accounts").delete().neq("id", "").execute()
+    # The router calls up_recurring_service.find_recurring(schema=SCHEMA);
+    # patching SCHEMA is enough to redirect to the test schema.
+    monkeypatch.setattr("backend.routers.up.SCHEMA", SCHEMA)
+
+    up_accounts_repo.upsert_many([_UpA(
+        id="acct-1", display_name="X", account_type="TRANSACTIONAL", ownership_type="INDIVIDUAL",
+        balance_value=0, created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+    )], schema=SCHEMA)
+
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    txs = [
+        _UpT(
+            id=f"r{i}", account_id="acct-1", status="SETTLED",
+            description="Spotify", amount_value=-11.99,
+            category_id=None, parent_category_id=None,
+            created_at=base - _td(days=30 * i), settled_at=base - _td(days=30 * i),
+        )
+        for i in range(4)
+    ]
+    from backend.repositories import up_transactions_repo as _tx_repo
+    _tx_repo.upsert_many(txs, schema=SCHEMA)
+
+    resp = client.get("/api/up/recurring")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["cadence"] == "monthly"
+    assert body[0]["name"].lower().startswith("spotify")

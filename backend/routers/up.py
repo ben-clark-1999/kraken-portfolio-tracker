@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from backend.auth.dependencies import require_auth
 from backend.repositories import up_accounts_repo, up_sync_log_repo, up_transactions_repo
-from backend.services import up_sync_service
+from backend.services import up_recurring_service, up_sync_service
 
 router = APIRouter(prefix="/api/up", tags=["up"], dependencies=[Depends(require_auth)])
 
@@ -75,3 +75,9 @@ async def sync_status() -> dict:
 async def sync_retry(background: BackgroundTasks) -> dict:
     background.add_task(up_sync_service.sync)
     return {"queued": True}
+
+
+@router.get("/recurring")
+async def list_recurring() -> list[dict]:
+    charges = up_recurring_service.find_recurring(schema=SCHEMA)
+    return [c.model_dump(mode="json") for c in charges]
