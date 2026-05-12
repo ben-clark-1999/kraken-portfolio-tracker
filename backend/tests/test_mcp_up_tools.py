@@ -37,3 +37,40 @@ def test_get_combined_net_worth(monkeypatch):
     out = mcp_module.get_combined_net_worth()
     assert "10" in out  # mentions crypto component
     assert "AUD" in out
+
+
+from datetime import timedelta as _td2
+from backend.models.up import UpAccount as _UpA2, UpTransaction as _UpT2
+from backend.repositories import up_accounts_repo as _acc_repo, up_transactions_repo as _tx_repo
+
+
+def test_get_recurring_charges_includes_monthly_total(monkeypatch):
+    db = get_supabase()
+    db.schema(SCHEMA).table("up_transactions").delete().neq("id", "").execute()
+    db.schema(SCHEMA).table("up_accounts").delete().neq("id", "").execute()
+
+    import backend.mcp_server as mcp_module
+    # The MCP tool calls find_recurring(schema=UP_SCHEMA); patching UP_SCHEMA
+    # is enough to redirect reads to the test schema.
+    monkeypatch.setattr(mcp_module, "UP_SCHEMA", SCHEMA)
+
+    _acc_repo.upsert_many([_UpA2(
+        id="acct-1", display_name="X", account_type="TRANSACTIONAL", ownership_type="INDIVIDUAL",
+        balance_value=0, created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+    )], schema=SCHEMA)
+
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    txs = [
+        _UpT2(id=f"x{i}", account_id="acct-1", status="SETTLED",
+              description="Spotify", amount_value=-11.99,
+              category_id=None, parent_category_id=None,
+              created_at=base - _td2(days=30 * i), settled_at=base - _td2(days=30 * i))
+        for i in range(4)
+    ]
+    _tx_repo.upsert_many(txs, schema=SCHEMA)
+
+    out = mcp_module.get_recurring_charges()
+    assert "Spotify" in out
+    assert "monthly" in out.lower()
+    assert "11.99" in out
+    assert "/month" in out  # the heading line

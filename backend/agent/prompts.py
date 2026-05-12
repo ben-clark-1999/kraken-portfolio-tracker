@@ -101,6 +101,7 @@ spending. Tools available:
 - get_up_cashflow — income vs expense per period (day/week/month).
 - get_up_recent_transactions — recent activity for grounding.
 - get_combined_net_worth — crypto + cash total.
+- get_recurring_charges — detected subscriptions with monthly totals.
 
 Rules:
 - Spending figures are always over a date range. If the user doesn't specify \

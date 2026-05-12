@@ -31,6 +31,7 @@ async def test_mcp_server_lists_tools():
         "get_up_cashflow",
         "get_up_recent_transactions",
         "get_combined_net_worth",
+        "get_recurring_charges",
     }
 
 

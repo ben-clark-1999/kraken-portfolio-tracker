@@ -295,5 +295,31 @@ def get_combined_net_worth() -> str:
     )
 
 
+from backend.services import up_recurring_service as _up_recurring
+
+
+@mcp.tool()
+def get_recurring_charges() -> str:
+    """Detected recurring charges (subscriptions). Returns each subscription's
+    cadence, amount, and monthly-equivalent cost, sorted by largest first.
+    Includes a total monthly subscription burden at the top."""
+    charges = _up_recurring.find_recurring(schema=UP_SCHEMA)
+    if not charges:
+        return ("No recurring charges detected yet. A subscription needs to "
+                "charge regularly with a stable amount before we can spot it "
+                "(3 monthly charges, or 2 yearly).")
+    total_monthly = sum(c.monthly_equivalent for c in charges)
+    lines = [f"Total recurring subscriptions: ${total_monthly:,.2f}/month  ({len(charges)} active)"]
+    for c in charges:
+        if c.cadence == "yearly":
+            extra = f"  (next: {c.next_expected_at.date()}, ~${c.monthly_equivalent:,.2f}/mo)"
+            amount_str = f"${c.median_amount:,.2f}"
+        else:
+            extra = f"  (next: {c.next_expected_at.date()})"
+            amount_str = f"${c.median_amount:,.2f}"
+        lines.append(f"  - {c.name:24s} {c.cadence:12s} {amount_str}{extra}")
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     mcp.run()
