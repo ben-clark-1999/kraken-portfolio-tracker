@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -65,3 +66,65 @@ def test_snapshot_all_active_inserts_one_row_per_strategy():
     rows = (sb.schema(SCHEMA).table("paper_equity_snapshots").select("*")
               .eq("strategy_id", sid).execute().data or [])
     assert len(rows) >= 1
+
+
+def test_snapshot_all_active_auto_pauses_on_kill_criterion():
+    sb = get_supabase()
+    sid = sb.schema(SCHEMA).table("strategies").insert({
+        "name": f"killable-{uuid4()}",
+        "execution_mode": "llm_agent", "persona_key": "trend-follower",
+        "starting_balance_aud": "1000",
+        "trigger_config": {},
+        "risk_caps": {"max_single_asset_pct": 30, "max_total_crypto_exposure_pct": 60,
+                      "max_order_aud": 250, "daily_loss_cap_aud": 100,
+                      "max_drawdown_pct_before_pause": 25,
+                      "allowed_pairs": ["ETH/AUD"]},
+        "kill_criteria": {
+            "auto_pause_when": [
+                {"metric": "drawdown_pct", "op": ">", "value": "10"},
+            ],
+        },
+    }).execute().data[0]["id"]
+
+    # Cash-only — equity = 700 AUD at the snapshot we are about to take.
+    sb.schema(SCHEMA).table("paper_positions").insert([
+        {"strategy_id": sid, "asset": "AUD",
+         "qty": "700", "avg_cost_aud": "1", "lots_jsonb": []},
+    ]).execute()
+
+    # Seed a peak snapshot one hour ago at AUD 1000 so the snapshot taken
+    # by snapshot_all_active draws the curve down to 700 (30% drawdown).
+    peak_ts = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    sb.schema(SCHEMA).table("paper_equity_snapshots").insert({
+        "strategy_id": sid, "ts": peak_ts,
+        "equity_aud": "1000", "cash_aud": "1000", "position_value_aud": "0",
+        "realised_pnl_aud": "0", "unrealised_pnl_aud": "0",
+    }).execute()
+
+    snapshot_all_active(mids={}, schema=SCHEMA)
+
+    refreshed = (sb.schema(SCHEMA).table("strategies")
+                 .select("status").eq("id", sid).execute().data or [])
+    assert refreshed and refreshed[0]["status"] == "paused"
+
+    alerts = (sb.schema(SCHEMA).table("system_alerts").select("*")
+              .eq("strategy_id", sid)
+              .eq("code", "KILL_CRITERIA_AUTO_PAUSED").execute().data or [])
+    assert len(alerts) == 1
+    payload = alerts[0]["payload"]
+    assert payload["metric"] == "drawdown_pct"
+
+
+def test_snapshot_all_active_skips_pause_when_no_kill_criteria():
+    sid = _seed_with_positions()
+    # _seed_with_positions seeds no kill_criteria; default is empty list.
+    snapshot_all_active(mids={"ETH/AUD": Decimal("3000")}, schema=SCHEMA)
+
+    sb = get_supabase()
+    refreshed = (sb.schema(SCHEMA).table("strategies")
+                 .select("status").eq("id", sid).execute().data or [])
+    assert refreshed and refreshed[0]["status"] == "active"
+
+    alerts = (sb.schema(SCHEMA).table("system_alerts").select("*")
+              .eq("strategy_id", sid).execute().data or [])
+    assert len(alerts) == 0
