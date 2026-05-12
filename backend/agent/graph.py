@@ -246,3 +246,30 @@ def build_graph(all_tools: list[BaseTool], checkpointer) -> "CompiledGraph":
     builder.add_edge("general_agent", END)
 
     return builder.compile(checkpointer=checkpointer)
+
+
+# ─────────── strategy-invocation entry point (Phase 6) ───────────
+# Called by backend/services/trading/llm_strategy.py per spec §7.2. Runs a
+# scoped ReAct loop with only the five paper-trading MCP tools exposed. The
+# full LangChain↔MCP wiring is intentionally deferred: tests for the
+# llm_strategy module mock the upstream `_call_langgraph` wrapper, so the
+# integration's heavier wiring lands when Task 31 (boot + smoke) requires it.
+
+async def invoke_for_strategy(
+    *,
+    system_prompt: str,
+    user_message: str,
+    model: str,
+    tools_whitelist: list[str],
+    strategy_id: str,
+) -> dict:
+    """Run the agent with a scoped toolset for a single strategy turn.
+
+    Returns: {"agent_output": str, "tool_calls": list, "input_tokens": int,
+              "output_tokens": int, "model": str}
+    """
+    raise NotImplementedError(
+        "invoke_for_strategy: full LangChain BaseTool wrappers around the "
+        "five MCP tools are not wired yet. Tests mock _call_langgraph; "
+        "production wiring lands in Task 31."
+    )

@@ -15,9 +15,12 @@ from backend.services.trading.trigger_state import TriggerConfig, TriggerState
 logger = logging.getLogger(__name__)
 
 
-# Re-export for monkeypatching in tests; real LLM implementation lands in Task 24.
+# Re-export for monkeypatching in tests; real implementation in llm_strategy.py.
 async def invoke_llm_strategy(strategy: StrategyRow, event) -> None:
-    raise NotImplementedError("wired in Task 24")
+    from backend.services.trading.llm_strategy import (
+        invoke_llm_strategy as _invoke,
+    )
+    await _invoke(strategy, event)
 
 
 # Module-level executor handle, set by main.py at boot (Task 31). Tests can
