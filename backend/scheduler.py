@@ -44,3 +44,12 @@ def start_scheduler() -> None:
 
 def stop_scheduler() -> None:
     scheduler.shutdown()
+
+
+def register_all_strategy_triggers() -> None:
+    """Called from main.py on startup after the schedulers are running."""
+    from backend.repositories import strategies_repo
+    from backend.services.trading.trigger_scheduler import register_strategy_triggers
+
+    for strat in strategies_repo.list_active():
+        register_strategy_triggers(strat, scheduler=scheduler)
