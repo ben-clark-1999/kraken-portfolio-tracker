@@ -2,6 +2,27 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Execution Progress
+
+**Status as of 2026-05-12:** First 3 tasks complete. Resume at **Task 4 (`LocalOrderBook`)**.
+
+| Task | Status | Commit | Notes |
+|---|---|---|---|
+| 1 — hypothesis dep | ✅ done | `28f63cc` | websockets pin removed (transitive via python-kraken-sdk) |
+| 2 — DB migration (8 tables) | ✅ done | `52137ba` + `19d77bf` | `agent_decisions.execution_mode` corrected to enum |
+| 3 — Pydantic models | ✅ done | `3346322` + `5d2e234` | `TriggerEvent` is real type alias + `validate_trigger_event` helper |
+| 4–37 | ⏳ pending | — | Start here when resuming |
+
+**Resume instructions:** open a fresh Claude Code session in this repo and say *"Use superpowers:executing-plans on `docs/superpowers/plans/2026-05-12-paper-trading-sandbox.md`, starting at Task 4"*. The plan stands alone — no conversation context is needed to continue.
+
+**Plan corrections applied during Tasks 1–3** (already reflected in the plan text below — no separate change list to read):
+- `from backend.db.client` → `from backend.db.supabase_client` (correct import everywhere).
+- Migration apply step uses Supabase MCP `apply_migration`, not a non-existent `backend.scripts.apply_migration` script.
+- Task 1's `websockets>=12,<13` instruction removed (conflicts with `python-kraken-sdk`'s `>=14.1`).
+- Task 3's `TriggerEvent` pattern uses a `TypeAdapter`-backed `validate_trigger_event` helper alongside the real type alias.
+
+---
+
 **Goal:** Build a multi-strategy paper-trading sandbox on Kraken AUD pairs (ETH/LINK/ADA/SOL), with PaperExecutor abstracted so future paper→real swap is a drop-in.
 
 **Architecture:** Single-process asyncio (Approach A): a Kraken-WS `price_feed_task`, an APScheduler extension for cron/interval triggers, one `strategy_loop_task` per active strategy, and one shared `PaperExecutor` — all running inside the existing FastAPI process. Three strategies at AUD 1,000 each: DCA-Baseline (deterministic, no LLM), Trend-Follower + Mean-Reverter (LLM via existing LangGraph agent with five new MCP tools and scoped persona prompts). New top-level frontend `StrategiesPage` with leaderboard + overlay equity chart (two benchmark lines: BTC HODL + monthly-rebalanced equal-weight basket).
