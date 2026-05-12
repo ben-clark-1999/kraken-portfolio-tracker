@@ -1,12 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Trophy } from 'lucide-react'
 
+import LeaderboardTable from '../components/strategies/LeaderboardTable'
 import { fetchLeaderboard } from '../api/strategies'
 import type { LeaderboardRow } from '../types/strategies'
 
 export default function StrategiesPage() {
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Wired into the detail drawer in Task 36; kept here so leaderboard clicks
+  // already update the canonical state.
+  const [, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -76,12 +80,7 @@ export default function StrategiesPage() {
               >
                 Leaderboard
               </SectionHeader>
-              <div
-                data-slot="leaderboard-table"
-                className="rounded-lg border border-surface-border/60 bg-surface-raised/30 px-6 py-10 text-center text-sm text-txt-muted"
-              >
-                Table renders in the next commit.
-              </div>
+              <LeaderboardTable rows={rows} onRowClick={setSelectedId} />
             </section>
 
             <section className="border-t border-surface-border pt-10 pb-16">
