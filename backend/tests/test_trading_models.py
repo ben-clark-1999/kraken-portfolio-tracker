@@ -58,10 +58,26 @@ def test_risk_caps_defaults():
 
 
 def test_trigger_event_discriminated_by_type():
-    evt: TriggerEvent = TriggerEvent.model_validate(
+    from backend.models.trading import validate_trigger_event, CronTriggerEvent, IntervalTriggerEvent
+
+    interval = validate_trigger_event(
         {"type": "interval", "minutes": 60, "ts": "2026-05-12T00:00:00Z"}
     )
-    assert evt.type == "interval"
+    assert isinstance(interval, IntervalTriggerEvent)
+    assert interval.minutes == 60
+
+    cron = validate_trigger_event(
+        {"type": "cron", "expr": "0 9 * * *", "ts": "2026-05-12T00:00:00Z"}
+    )
+    assert isinstance(cron, CronTriggerEvent)
+    assert cron.expr == "0 9 * * *"
+
+    import pytest
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        validate_trigger_event(
+            {"type": "unknown_event_kind", "ts": "2026-05-12T00:00:00Z"}
+        )
 
 
 def test_deterministic_config_weights_sum_to_one():

@@ -126,38 +126,19 @@ class DrawdownEvent(BaseModel):
     ts: datetime
 
 
-# Discriminated union of all bus events. `TriggerEvent` is an alias for the
-# annotated union itself (use as a type hint); `TriggerEventAdapter` is a
-# pydantic `TypeAdapter` you call to validate dicts into the correct concrete
-# event class via the `type` discriminator. We expose both via a small wrapper
-# class so callers can write `TriggerEvent.model_validate({...})` and get back
-# a concrete event instance (e.g. `IntervalTriggerEvent`).
-_TriggerEventUnion = Annotated[
+TriggerEvent = Annotated[
     CronTriggerEvent | IntervalTriggerEvent | PriceBreakoutEvent
     | PriceStretchEvent | OrderFilledEvent | DrawdownEvent
     | TickEvent | BookUpdateEvent,
     Field(discriminator="type"),
 ]
 
-_trigger_event_adapter: TypeAdapter[_TriggerEventUnion] = TypeAdapter(_TriggerEventUnion)
+_trigger_event_adapter: TypeAdapter[TriggerEvent] = TypeAdapter(TriggerEvent)
 
 
-class TriggerEvent:
-    """Namespace exposing `model_validate` over the discriminated event union.
-
-    Not a Pydantic model itself — calling `TriggerEvent.model_validate(d)`
-    returns the concrete event instance picked by the `type` discriminator.
-    Use `_TriggerEventUnion` (or import the concrete event classes) for type
-    hints on function signatures.
-    """
-
-    @staticmethod
-    def model_validate(data: object) -> (
-        CronTriggerEvent | IntervalTriggerEvent | PriceBreakoutEvent
-        | PriceStretchEvent | OrderFilledEvent | DrawdownEvent
-        | TickEvent | BookUpdateEvent
-    ):
-        return _trigger_event_adapter.validate_python(data)
+def validate_trigger_event(data: object) -> TriggerEvent:
+    """Parse a dict/JSON into the appropriate concrete TriggerEvent subtype."""
+    return _trigger_event_adapter.validate_python(data)
 
 
 # ─────────────────────────── Configs ──────────────────────────────
