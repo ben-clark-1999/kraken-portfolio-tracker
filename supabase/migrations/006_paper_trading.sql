@@ -76,7 +76,7 @@ create table paper_positions (
 create table agent_decisions (
   id                    uuid primary key default gen_random_uuid(),
   strategy_id           uuid not null references strategies(id) on delete cascade,
-  execution_mode        text not null,
+  execution_mode        strategy_execution_mode not null,
   trigger_event         jsonb not null,
   input_snapshot        jsonb not null,
   persona_prompt_hash   text,

@@ -159,7 +159,7 @@ Append the following line (preserve existing pinning style — e.g., `>=` ranges
 hypothesis>=6.100,<7
 ```
 
-If `websockets` is not present, also add `websockets>=12,<13` (used by `price_feed.py` later).
+**Do NOT add `websockets` explicitly.** It is already a transitive dependency of `python-kraken-sdk` (which requires `websockets>=14.1`). Adding a conflicting upper-bound pin breaks `pip install`. The `price_feed.py` task (Task 16) imports `websockets` directly — that works against the transitive version (verified 15.0.1 at plan write time).
 
 - [ ] **Step 3: Install in the venv**
 
@@ -270,7 +270,7 @@ create table paper_positions (
 create table agent_decisions (
   id                    uuid primary key default gen_random_uuid(),
   strategy_id           uuid not null references strategies(id) on delete cascade,
-  execution_mode        text not null,
+  execution_mode        strategy_execution_mode not null,
   trigger_event         jsonb not null,
   input_snapshot        jsonb not null,
   persona_prompt_hash   text,
@@ -342,20 +342,18 @@ If the project doesn't use a `test_` prefix for some migrations, skip this step.
 
 - [ ] **Step 3: Apply the migration locally**
 
-Run (matches the pattern used in the recurring-charges plan and existing migrations):
-```bash
-backend/.venv/bin/python -m backend.scripts.apply_migration supabase/migrations/006_paper_trading.sql
-```
-If that script doesn't exist, fall back to the project's documented migration command — typically `psql $SUPABASE_DB_URL -f supabase/migrations/006_paper_trading.sql`. Check `backend/scripts/` for an existing apply helper before running raw psql.
+Use the **Supabase MCP `apply_migration` tool** (this is the project's actual pattern — verified during execution of this task). Provide the SQL file contents and a name like `006_paper_trading`. Apply the test mirror the same way if you created one.
 
-Expected: no errors; eight tables/types created.
+If you're operating without Supabase MCP access, fall back to `psql $SUPABASE_DB_URL -f supabase/migrations/006_paper_trading.sql`. `backend/scripts/` does **not** contain an apply-migration helper in this project.
+
+Expected: no errors; eight tables/types created in public schema (and another eight in test schema if you applied the test mirror).
 
 - [ ] **Step 4: Verify in the DB**
 
 Run:
 ```bash
 backend/.venv/bin/python -c "
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 sb = get_supabase()
 for t in ['strategies','paper_orders','paper_fills','paper_positions','agent_decisions','paper_equity_snapshots','paper_benchmarks','system_alerts']:
     r = sb.table(t).select('count', count='exact').limit(0).execute()
@@ -2153,7 +2151,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.models.trading import StrategyRow
 
 
@@ -2197,7 +2195,7 @@ from decimal import Decimal
 from typing import Iterable
 from uuid import UUID
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.models.trading import Fill, OrderRow
 
 
@@ -2273,7 +2271,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 
 
 def get_all(strategy_id: UUID) -> dict[str, dict]:
@@ -2408,7 +2406,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.models.trading import OrderBookLevel
 from backend.services.trading.executor import PaperExecutor
 from backend.services.trading.order_book import LocalOrderBook
@@ -2741,7 +2739,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.models.trading import OrderBookLevel
 from backend.services.trading.executor import PaperExecutor
 from backend.services.trading.order_book import LocalOrderBook
@@ -2882,7 +2880,7 @@ In `backend/services/trading/executor.py`, modify `submit_order` to default `exp
         """Called by the reconciler task when book changes; fills any resting
         limits whose price has been crossed. Maker fees apply.
         """
-        from backend.db.client import get_supabase
+        from backend.db.supabase_client import get_supabase
         from backend.repositories import paper_orders_repo
         from backend.services.trading.fees import KRAKEN_PRO_SPOT_TIER_1, apply_fee
         from backend.models.trading import Fill
@@ -4134,7 +4132,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 
 
 def insert(*, level: str, code: str, strategy_id: UUID | None,
@@ -4360,7 +4358,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.models.trading import (
     CronTriggerEvent, DeterministicConfig, RiskCaps, KillCriteria,
 )
@@ -4457,7 +4455,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 
 
 def insert(
@@ -4919,7 +4917,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.mcp_server import (
     place_paper_order, cancel_paper_order, get_my_paper_state,
     get_my_recent_decisions, get_market_snapshot,
@@ -5159,7 +5157,7 @@ from unittest.mock import patch, AsyncMock
 
 import pytest
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.models.trading import IntervalTriggerEvent
 
 
@@ -5449,7 +5447,7 @@ from uuid import uuid4
 
 import pytest
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.services.trading.equity_snapshot import (
     compute_equity_for_strategy, snapshot_all_active,
 )
@@ -5513,7 +5511,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 
 
 def insert_snapshot(
@@ -6012,7 +6010,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.main import app
 
 
@@ -6119,7 +6117,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.repositories import (
     agent_decisions_repo, paper_equity_repo, paper_orders_repo,
     paper_positions_repo, strategies_repo, system_alerts_repo,
@@ -6321,7 +6319,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from time import perf_counter
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 
 
 def build_health_payload() -> dict:
@@ -6717,7 +6715,7 @@ Create `backend/tests/test_trading_seed.py`:
 ```python
 from decimal import Decimal
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 from backend.scripts.seed_strategies import (
     seed_dca_baseline, seed_trend_follower, seed_mean_reverter,
     seed_all,
@@ -6783,7 +6781,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from backend.db.client import get_supabase
+from backend.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 
