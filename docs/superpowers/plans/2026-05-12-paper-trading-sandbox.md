@@ -4,7 +4,7 @@
 
 ## Execution Progress
 
-**Status as of 2026-05-12 (third session):** Tasks 1–31 complete and pushed. Resume at **Task 32 (`TypeScript types + API client`)** — Part 12 is the frontend.
+**Status as of 2026-05-12 (fourth session):** Tasks 1–37 complete and pushed. Plan is implemented end-to-end (backend + frontend). Kill-criteria evaluation gap flagged in the self-review is closed (`c1dc614`). Only the open follow-ups in `docs/manual-smoke-strategies.md §11` remain.
 
 | Range | Status | Notes |
 |---|---|---|
@@ -39,9 +39,15 @@
 | 29 — health endpoint | ✅ done | `c206595`; `/_health` placed before `/{strategy_id}` to avoid UUID parsing |
 | 30 — persona evals | ✅ done | `82b24b3`; 6 scenarios in golden set, full runs gated `@pytest.mark.eval` |
 | 31 — startup + seed + invoke_for_strategy | ✅ done | `9d8f004`; `_boot_trading_sandbox` skipped under `PYTEST_CURRENT_TEST` |
-| 32–37 | ⏳ pending | Frontend (`/impeccable`) + manual smoke. Start here when resuming. |
+| 32 — frontend types + API client | ✅ done | `717120d`; reuses project `apiFetch` for 401/5xx events |
+| 33 — StrategiesPage shell + side-rail | ✅ done | `22201ff`; Trophy icon in side rail, "No strategies yet" empty state |
+| 34 — LeaderboardTable | ✅ done | `6dba77c`; stability-annotated 7d/30d return cells, keyboard-accessible rows |
+| 35 — EquityChart overlay | ✅ done | `fcf4df5`; recharts; BTC HODL + alt basket dashed lines; clickable legend |
+| 35.5 — kill-criteria wire-up | ✅ done | `c1dc614`; closes the spec §9.5 gap flagged in this plan's self-review |
+| 36 — drawer + decisions + chat + banner | ✅ done | `ec1467c`; PersonaChatTab stubbed pending `mode=persona_conversational` backend follow-up |
+| 37 — smoke checklist + final verify | ✅ done | `75aff6e`; `pytest -k "trading or strategies or personas"` → 129 passed |
 
-**Resume instructions:** open a fresh Claude Code session in this repo and say *"Use superpowers:executing-plans on `docs/superpowers/plans/2026-05-12-paper-trading-sandbox.md`, starting at Task 32"*. The plan stands alone — no conversation context is needed to continue. Per project memory, frontend tasks (32–36) MUST use `/impeccable`, not hand-written Tailwind.
+**Resume instructions:** none — plan is complete. Open follow-ups (persona-conversational chat endpoint, LiveKrakenExecutor, Phase-2 backtester) are tracked in `docs/manual-smoke-strategies.md §11`.
 
 **Plan corrections applied during Tasks 1–23** (already documented in commit messages; future tasks must keep applying):
 - `from backend.db.client` → `from backend.db.supabase_client` (correct import).
