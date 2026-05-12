@@ -32,6 +32,12 @@ async def test_mcp_server_lists_tools():
         "get_up_recent_transactions",
         "get_combined_net_worth",
         "get_recurring_charges",
+        # Paper-trading tools (Task 23)
+        "place_paper_order",
+        "cancel_paper_order",
+        "get_my_paper_state",
+        "get_my_recent_decisions",
+        "get_market_snapshot",
     }
 
 

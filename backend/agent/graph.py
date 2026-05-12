@@ -250,10 +250,24 @@ def build_graph(all_tools: list[BaseTool], checkpointer) -> "CompiledGraph":
 
 # ─────────── strategy-invocation entry point (Phase 6) ───────────
 # Called by backend/services/trading/llm_strategy.py per spec §7.2. Runs a
-# scoped ReAct loop with only the five paper-trading MCP tools exposed. The
-# full LangChain↔MCP wiring is intentionally deferred: tests for the
-# llm_strategy module mock the upstream `_call_langgraph` wrapper, so the
-# integration's heavier wiring lands when Task 31 (boot + smoke) requires it.
+# scoped ReAct loop with only the paper-trading MCP tools (whitelist) exposed.
+# Tools are populated at app boot via set_strategy_tools(); tests for the
+# llm_strategy module mock the upstream `_call_langgraph` wrapper and don't
+# exercise this path.
+
+from langchain_core.messages import HumanMessage
+
+_strategy_tools: list[BaseTool] = []
+
+
+def set_strategy_tools(tools: list[BaseTool]) -> None:
+    """Register the MCP tool surface that `invoke_for_strategy` may use.
+
+    Called once from main.py's lifespan after MCPToolManager.start().
+    """
+    global _strategy_tools
+    _strategy_tools = list(tools)
+
 
 async def invoke_for_strategy(
     *,
@@ -268,8 +282,70 @@ async def invoke_for_strategy(
     Returns: {"agent_output": str, "tool_calls": list, "input_tokens": int,
               "output_tokens": int, "model": str}
     """
-    raise NotImplementedError(
-        "invoke_for_strategy: full LangChain BaseTool wrappers around the "
-        "five MCP tools are not wired yet. Tests mock _call_langgraph; "
-        "production wiring lands in Task 31."
-    )
+    available = {t.name: t for t in _strategy_tools}
+    scoped = [available[name] for name in tools_whitelist if name in available]
+    missing = [name for name in tools_whitelist if name not in available]
+    if missing:
+        logger.warning(
+            "[Strategy %s] tools not available at runtime: %s",
+            strategy_id, ",".join(missing),
+        )
+
+    llm = ChatAnthropic(model=model).bind_tools(scoped) if scoped \
+        else ChatAnthropic(model=model)
+    messages = [SystemMessage(content=system_prompt),
+                HumanMessage(content=user_message)]
+
+    aggregated_tool_calls: list[dict] = []
+    input_tokens = 0
+    output_tokens = 0
+    actual_model = model
+
+    for iteration in range(5):
+        response = await llm.ainvoke(messages)
+        messages.append(response)
+
+        usage = getattr(response, "usage_metadata", None) or {}
+        input_tokens += int(usage.get("input_tokens", 0) or 0)
+        output_tokens += int(usage.get("output_tokens", 0) or 0)
+        model_field = (getattr(response, "response_metadata", {}) or {}).get("model")
+        if model_field:
+            actual_model = model_field
+
+        tool_calls = response.tool_calls or []
+        if not tool_calls:
+            break
+
+        for tc in tool_calls:
+            aggregated_tool_calls.append({
+                "tool": tc["name"], "args": tc.get("args", {}),
+            })
+            tool = available.get(tc["name"])
+            if tool is None:
+                result = f"Tool {tc['name']} is not available to this strategy."
+            else:
+                result = await invoke_tool_with_timeout(tool, tc.get("args") or {})
+            messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
+    else:
+        logger.warning(
+            "[Strategy %s] max iterations reached without final answer",
+            strategy_id,
+        )
+
+    final = messages[-1]
+    agent_output = getattr(final, "content", "") or ""
+    if isinstance(agent_output, list):
+        # ChatAnthropic occasionally returns a list of content blocks; flatten
+        # the text portions only.
+        agent_output = "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in agent_output
+        )
+
+    return {
+        "agent_output": agent_output,
+        "tool_calls": aggregated_tool_calls,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "model": actual_model,
+    }

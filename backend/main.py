@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -10,6 +12,99 @@ from backend.middleware.request_id import RequestIDMiddleware
 from backend.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
+
+
+def _is_test_context() -> bool:
+    """True when running under pytest — skip the heavy trading-sandbox boot."""
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+async def _boot_trading_sandbox(app: FastAPI, tools) -> None:
+    """Seed strategies, validate the universe, then attach the price feed,
+    strategy loops, and scheduled jobs. Each step is defensive so a single
+    failure doesn't take down the rest of the API surface (spec §11)."""
+    from decimal import Decimal
+
+    from backend.agent.graph import set_strategy_tools
+    from backend.repositories import strategies_repo, system_alerts_repo
+    from backend.scheduler import register_all_strategy_triggers, scheduler
+    from backend.scripts.seed_strategies import seed_all
+    from backend.services.trading.equity_snapshot import snapshot_all_active
+    from backend.services.trading.event_bus import get_default_bus
+    from backend.services.trading.executor import PaperExecutor
+    from backend.services.trading.min_order import filter_allowed_pairs_by_min_order
+    from backend.services.trading.price_feed import PriceFeed
+    from backend.services.trading.strategy_loop import set_executor, strategy_loop
+
+    set_strategy_tools(tools)
+
+    try:
+        seed_all()
+        logger.info("[Startup] Strategies seeded")
+    except Exception:
+        logger.exception("[Startup] Strategy seed failed")
+
+    pairs = ["ETH/AUD", "LINK/AUD", "ADA/AUD", "SOL/AUD"]
+    try:
+        kept, dropped = filter_allowed_pairs_by_min_order(
+            pairs=pairs, max_position_aud=Decimal("300"),
+        )
+        if dropped:
+            for p in dropped:
+                system_alerts_repo.insert(
+                    level="warning", code="PAIR_DROPPED_MIN_ORDER",
+                    strategy_id=None,
+                    message=f"Pair {p} dropped from universe (min-order check)",
+                    payload={"pair": p},
+                )
+        pairs = kept or pairs
+    except Exception:
+        logger.exception("[Startup] Min-order validation failed")
+
+    try:
+        bus = get_default_bus()
+        executor = PaperExecutor()
+        set_executor(executor)
+        feed = PriceFeed(pairs=pairs, bus=bus, executor=executor)
+
+        feed_task = asyncio.create_task(feed.run(), name="price_feed")
+        loop_tasks = [
+            asyncio.create_task(
+                strategy_loop(strat, bus=bus),
+                name=f"strategy_loop:{strat.name}",
+            )
+            for strat in strategies_repo.list_active()
+        ]
+
+        if not scheduler.running:
+            start_scheduler()
+        register_all_strategy_triggers()
+
+        def _equity_job() -> None:
+            mids = {
+                p: b.mid()
+                for p, b in (executor._books or {}).items()
+                if b.ts is not None and b.asks and b.bids
+            }
+            try:
+                snapshot_all_active(mids=mids)
+            except Exception:
+                logger.exception("[Equity job] snapshot failed")
+
+        scheduler.add_job(
+            _equity_job, "interval", hours=1,
+            id="paper_equity_snapshot", replace_existing=True,
+        )
+
+        app.state.trading_executor = executor
+        app.state.trading_feed_task = feed_task
+        app.state.trading_loop_tasks = loop_tasks
+        logger.info(
+            "[Startup] Trading sandbox booted: %d strategy loops, %d pairs",
+            len(loop_tasks), len(pairs),
+        )
+    except Exception:
+        logger.exception("[Startup] Trading sandbox boot failed")
 
 
 @asynccontextmanager
@@ -50,9 +145,23 @@ async def lifespan(app: FastAPI):
     # ── Scheduler ───────────────────────────────────────────────────
     start_scheduler()
 
+    # ── Trading sandbox (skipped under pytest) ──────────────────────
+    app.state.trading_executor = None
+    app.state.trading_feed_task = None
+    app.state.trading_loop_tasks = []
+    if _is_test_context():
+        logger.info("[Startup] PYTEST detected — skipping trading sandbox boot")
+    else:
+        await _boot_trading_sandbox(app, tools)
+
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────
+    for t in list(getattr(app.state, "trading_loop_tasks", []) or []):
+        t.cancel()
+    feed_task = getattr(app.state, "trading_feed_task", None)
+    if feed_task is not None:
+        feed_task.cancel()
     stop_scheduler()
     if app.state.mcp_tool_manager:
         await app.state.mcp_tool_manager.stop()
