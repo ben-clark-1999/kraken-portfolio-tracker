@@ -4,22 +4,47 @@
 
 ## Execution Progress
 
-**Status as of 2026-05-12:** First 3 tasks complete. Resume at **Task 4 (`LocalOrderBook`)**.
+**Status as of 2026-05-12 (second session):** Tasks 1–23 complete and pushed. Resume at **Task 24 (`LLM strategy invocation + cost model`)**.
 
-| Task | Status | Commit | Notes |
-|---|---|---|---|
-| 1 — hypothesis dep | ✅ done | `28f63cc` | websockets pin removed (transitive via python-kraken-sdk) |
-| 2 — DB migration (8 tables) | ✅ done | `52137ba` + `19d77bf` | `agent_decisions.execution_mode` corrected to enum |
-| 3 — Pydantic models | ✅ done | `3346322` + `5d2e234` | `TriggerEvent` is real type alias + `validate_trigger_event` helper |
-| 4–37 | ⏳ pending | — | Start here when resuming |
+| Range | Status | Notes |
+|---|---|---|
+| 1 — hypothesis dep | ✅ done | `28f63cc`; websockets pin removed (transitive via python-kraken-sdk) |
+| 2 — DB migration (8 tables) | ✅ done | `52137ba` + `19d77bf`; `agent_decisions.execution_mode` is enum |
+| 3 — Pydantic models | ✅ done | `3346322` + `5d2e234`; `TriggerEvent` real type alias + helper |
+| 4 — LocalOrderBook | ✅ done | `b764353` |
+| 5 — FeeSchedule | ✅ done | `d2afb47` |
+| 6 — fill model | ✅ done | `77464a8` |
+| 7 — risk_cap_precheck | ✅ done | `aea5c37` (incl. 3 Hypothesis property tests @ 200 examples each) |
+| 8 — kill_criteria | ✅ done | `3e21004` |
+| 9 — min_order | ✅ done | `6447ddd`; test_filter_drops_pair threshold corrected |
+| 10 — OrderExecutor + skel | ✅ done | `f86263e` |
+| 11 — market path | ✅ done | `bbe83ad`; integration tests use test schema |
+| 12 — limit + reconciler | ✅ done | `02efe4d`; 24h default TTL, maker fees on cross |
+| 13 — EventBus | ✅ done | `45ea4be` |
+| 14 — trigger evaluators | ✅ done | `2752de7` |
+| 15 — TriggerState | ✅ done | `d909793` |
+| 16 — price_feed | ✅ done | `b2cf76d`; Kraken WS v2 book + trade |
+| 17 — trigger_scheduler | ✅ done | `fa44edd` |
+| 18 — strategy_loop | ✅ done | `ad6ec9d` |
+| 19 — deterministic | ✅ done | `04418b0` |
+| 20 — decision_writer | ✅ done | `1383d76` |
+| 21 — persona files | ✅ done | `07500a3` |
+| 22 — persona_loader | ✅ done | `a0715c3` |
+| 23 — 5 MCP tools | ✅ done | `d860256` |
+| 24–37 | ⏳ pending | Start here when resuming |
 
-**Resume instructions:** open a fresh Claude Code session in this repo and say *"Use superpowers:executing-plans on `docs/superpowers/plans/2026-05-12-paper-trading-sandbox.md`, starting at Task 4"*. The plan stands alone — no conversation context is needed to continue.
+**Resume instructions:** open a fresh Claude Code session in this repo and say *"Use superpowers:executing-plans on `docs/superpowers/plans/2026-05-12-paper-trading-sandbox.md`, starting at Task 24"*. The plan stands alone — no conversation context is needed to continue.
 
-**Plan corrections applied during Tasks 1–3** (already reflected in the plan text below — no separate change list to read):
-- `from backend.db.client` → `from backend.db.supabase_client` (correct import everywhere).
-- Migration apply step uses Supabase MCP `apply_migration`, not a non-existent `backend.scripts.apply_migration` script.
-- Task 1's `websockets>=12,<13` instruction removed (conflicts with `python-kraken-sdk`'s `>=14.1`).
-- Task 3's `TriggerEvent` pattern uses a `TypeAdapter`-backed `validate_trigger_event` helper alongside the real type alias.
+**Plan corrections applied during Tasks 1–23** (already documented in commit messages; future tasks must keep applying):
+- `from backend.db.client` → `from backend.db.supabase_client` (correct import).
+- All new repos accept `schema: str = "public"` and tests pass `schema="test"`; matches existing `lots_repo` / `up_*_repo` convention.
+- `PaperExecutor(schema=...)` threads schema through every repo call; same for `strategy_loop.set_executor(exec, schema=...)`.
+- Removed `"updated_at": "now()"` literal strings (supabase-py sends them verbatim).
+- `OrderResult.order_id` normalised to `str` on cached idempotency path.
+- `event.model_dump(mode="json")` before writing JSONB so datetime → ISO string.
+- `@mcp.tool()` decorated functions don't expose `.fn` in this FastMCP — call them directly in tests.
+- TriggerEvent is a real type alias + `validate_trigger_event` helper.
+- Migrations apply via Supabase MCP `apply_migration`, not a non-existent script.
 
 ---
 
