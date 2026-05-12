@@ -1,0 +1,117 @@
+# Per-persona evaluation scenarios — spec §7.5.
+# Each scenario specifies:
+#   id, persona_key, description, trigger, portfolio_state,
+#   market_snapshot, expected behaviour_category
+#
+# These exercise the LLM strategies (trend-follower, mean-reverter)
+# under both action-required and do-nothing conditions, plus risk-cap
+# boundaries. DCA-Baseline is deterministic and has no LLM to evaluate.
+scenarios:
+  - id: tf-breakout-up-no-position
+    persona_key: trend-follower
+    description: "ETH breaks 24h high, no current ETH position"
+    trigger:
+      type: price_breakout
+      pair: ETH/AUD
+      direction: up
+      move_pct: 2.5
+      lookback_bars: 24
+    portfolio_state:
+      cash_aud: 1000
+      positions: {}
+      open_orders: []
+    market_snapshot:
+      ETH/AUD: { top_ask: 3200, top_bid: 3199, mid: 3199.5 }
+    expected:
+      should_call_tool: place_paper_order
+      should_be_long_on: ETH/AUD
+      reasoning_mentions: [breakout, trend, "24"]
+
+  - id: tf-no-trend-heartbeat
+    persona_key: trend-follower
+    description: "Hourly heartbeat, market is flat — should do nothing"
+    trigger:
+      type: interval
+      minutes: 60
+    portfolio_state:
+      cash_aud: 1000
+      positions: {}
+      open_orders: []
+    market_snapshot:
+      ETH/AUD: { top_ask: 3000, top_bid: 2999, mid: 2999.5 }
+    expected:
+      should_call_tool: null
+      reasoning_mentions: [no trend, hold, flat]
+
+  - id: mr-stretch-above-mean
+    persona_key: mean-reverter
+    description: "SOL stretched 2.5σ above 48h mean"
+    trigger:
+      type: price_stretch
+      pair: SOL/AUD
+      direction: above
+      stdev_distance: 2.5
+    portfolio_state:
+      cash_aud: 500
+      positions: { SOL: 500 }
+      open_orders: []
+    market_snapshot:
+      SOL/AUD: { top_ask: 145, top_bid: 144.9, mid: 144.95 }
+    expected:
+      should_call_tool: place_paper_order
+      should_sell_some_of: SOL/AUD
+      reasoning_mentions: [stretch, reversion, "2"]
+
+  - id: mr-no-stretch-heartbeat
+    persona_key: mean-reverter
+    description: "Hourly heartbeat, prices within band — do nothing"
+    trigger:
+      type: interval
+      minutes: 60
+    portfolio_state:
+      cash_aud: 1000
+      positions: {}
+      open_orders: []
+    market_snapshot:
+      ETH/AUD: { top_ask: 3000, top_bid: 2999, mid: 2999.5 }
+    expected:
+      should_call_tool: null
+      reasoning_mentions: [no stretch, hold]
+
+  - id: tf-respects-max-order-cap
+    persona_key: trend-follower
+    description: "Strong breakout but order would exceed AUD 250 cap"
+    trigger:
+      type: price_breakout
+      pair: ETH/AUD
+      direction: up
+      move_pct: 5
+      lookback_bars: 24
+    portfolio_state:
+      cash_aud: 1000
+      positions: {}
+      open_orders: []
+    market_snapshot:
+      ETH/AUD: { top_ask: 3000, top_bid: 2999, mid: 2999.5 }
+    expected:
+      should_call_tool: place_paper_order
+      order_notional_at_most_aud: 250
+      reasoning_mentions: [scaling, cap]
+
+  - id: mr-already-fully-positioned
+    persona_key: mean-reverter
+    description: "Further stretch but strategy already at 30% single-asset cap"
+    trigger:
+      type: price_stretch
+      pair: SOL/AUD
+      direction: below
+      stdev_distance: 3
+    portfolio_state:
+      cash_aud: 700
+      positions: { SOL: 300 }
+      open_orders: []
+    market_snapshot:
+      SOL/AUD: { top_ask: 90, top_bid: 89.9, mid: 89.95 }
+    expected:
+      should_call_tool: null
+      reasoning_mentions: [cap, fully positioned, hold]
