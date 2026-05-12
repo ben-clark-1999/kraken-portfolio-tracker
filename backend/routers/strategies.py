@@ -96,6 +96,12 @@ def leaderboard() -> list[dict]:
     return out
 
 
+@router.get("/_health")
+def health() -> dict:
+    from backend.services.trading.health import build_health_payload
+    return build_health_payload(schema=SCHEMA)
+
+
 @router.get("/{strategy_id}")
 def get_strategy(strategy_id: UUID) -> dict:
     s = strategies_repo.get(strategy_id, schema=SCHEMA)
