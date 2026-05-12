@@ -71,7 +71,12 @@ CYCLES_PER_MONTH: dict[Cadence, float] = {
     "yearly": 1 / 12,
 }
 
-INTERVAL_CONSISTENCY_THRESHOLD = 0.80
+# Intervals must mostly fall in the same cadence bucket. Strict greater-than
+# so 60% exactly fails (test_classify_fails_at_60_percent_consistency relies
+# on this boundary). Real-world UP data has noise (one-off charges from a
+# recurring merchant, missed/early cycles) — 80% was too strict to detect
+# obvious weekly/monthly subs in production data.
+INTERVAL_CONSISTENCY_THRESHOLD = 0.60
 MAX_CV = 0.15
 MIN_OCCURRENCES_SUB_YEARLY = 3
 MIN_OCCURRENCES_YEARLY = 2
@@ -90,7 +95,7 @@ def classify_cadence(intervals_days: list[int]) -> Cadence | None:
     if not counts:
         return None
     best_name, best_count = max(counts.items(), key=lambda x: x[1])
-    if best_count / len(intervals_days) >= INTERVAL_CONSISTENCY_THRESHOLD:
+    if best_count / len(intervals_days) > INTERVAL_CONSISTENCY_THRESHOLD:
         return best_name
     return None
 
@@ -131,19 +136,42 @@ def _title_case(s: str) -> str:
     )
 
 
+# Sub-yearly cadences detect on a recent window so paused-then-resumed subs
+# (e.g., gym membership during a year of travel) still register as active.
+# Yearly cadences need full history to find the ≥2 charges 12 months apart.
+RECENT_LOOKBACK_DAYS = 200
+
+
+def _intervals(timestamps: list[datetime]) -> list[int]:
+    return [(timestamps[i + 1] - timestamps[i]).days for i in range(len(timestamps) - 1)]
+
+
 def find_recurring(schema: str = "public") -> list[RecurringCharge]:
     """Detect recurring outflow subscriptions.
 
     See docs/superpowers/specs/2026-05-12-recurring-charges-design.md.
     """
     db = get_supabase()
-    rows = (
-        db.schema(schema).table("up_transactions")
-        .select("description,amount_value,created_at")
-        .lt("amount_value", 0)
-        .order("created_at", desc=False)
-        .execute().data
-    )
+    # Supabase PostgREST has a server-side max-rows=1000 cap that overrides
+    # client .limit(); paginate via .range() to fetch the full outflow history.
+    rows: list[dict] = []
+    page_size = 1000
+    offset = 0
+    while True:
+        page = (
+            db.schema(schema).table("up_transactions")
+            .select("description,amount_value,created_at")
+            .lt("amount_value", 0)
+            .order("created_at", desc=False)
+            .range(offset, offset + page_size - 1)
+            .execute().data
+        )
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
 
     # Group by normalised description.
     groups: dict[str, list[tuple[datetime, float, str]]] = defaultdict(list)
@@ -156,22 +184,35 @@ def find_recurring(schema: str = "public") -> list[RecurringCharge]:
         groups[norm].append((ts, amt, r["description"]))
 
     now = datetime.now(timezone.utc)
+    recent_cutoff = now - timedelta(days=RECENT_LOOKBACK_DAYS)
     out: list[RecurringCharge] = []
 
-    for norm, entries in groups.items():
-        if len(entries) < 2:  # need ≥1 interval to classify
+    for norm, full_entries in groups.items():
+        if len(full_entries) < 2:
             continue
-        entries.sort(key=lambda x: x[0])
-        timestamps = [e[0] for e in entries]
-        amounts = [e[1] for e in entries]
+        full_entries.sort(key=lambda x: x[0])
 
-        intervals = [
-            (timestamps[i + 1] - timestamps[i]).days
-            for i in range(len(timestamps) - 1)
-        ]
-        cadence = classify_cadence(intervals)
+        # Try the recent window first — handles paused subs that resumed.
+        recent = [e for e in full_entries if e[0] >= recent_cutoff]
+        cadence: Cadence | None = None
+        entries: list[tuple[datetime, float, str]] = []
+        if len(recent) >= 2:
+            cad_recent = classify_cadence(_intervals([e[0] for e in recent]))
+            if cad_recent is not None and cad_recent != "yearly":
+                cadence = cad_recent
+                entries = recent
+
+        # Fall back to full history (catches yearly).
+        if cadence is None:
+            cad_full = classify_cadence(_intervals([e[0] for e in full_entries]))
+            if cad_full == "yearly":
+                cadence = cad_full
+                entries = full_entries
+
         if cadence is None:
             continue
+        timestamps = [e[0] for e in entries]
+        amounts = [e[1] for e in entries]
 
         min_occ = MIN_OCCURRENCES_YEARLY if cadence == "yearly" else MIN_OCCURRENCES_SUB_YEARLY
         if len(entries) < min_occ:
