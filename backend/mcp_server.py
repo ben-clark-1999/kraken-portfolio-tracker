@@ -1,8 +1,10 @@
 # ────────────────────────────────────────────────────────────────────────────
-# This server is read-only. It must never expose trading, deposit, or
-# withdrawal tools. The underlying Kraken API key is scoped to read-only
-# permissions; trade execution is an explicit future decision that requires
-# key rotation and separate safety review.
+# The portfolio tools (top of this file) are read-only against the live Kraken
+# API key, which is scoped read-only. Real trading via these tools would
+# require key-rotation and separate safety review.
+#
+# The paper-trading tools at the bottom of this file write to the project's
+# `paper_*` tables in Postgres — they never touch Kraken's live trading API.
 # ────────────────────────────────────────────────────────────────────────────
 
 import asyncio
@@ -319,6 +321,129 @@ def get_recurring_charges() -> str:
             amount_str = f"${c.median_amount:,.2f}"
         lines.append(f"  - {c.name:24s} {c.cadence:12s} {amount_str}{extra}")
     return "\n".join(lines)
+
+
+# ─────────────────────────── Paper-trading tools ───────────────────
+# Spec §7.1. These tools read/write paper-trading state for LLM strategies
+# at runtime. Each one routes through strategy_loop._current_executor and
+# strategy_loop._current_schema, both of which are set by main.py at boot
+# (and by tests for isolation).
+
+from decimal import Decimal as _Decimal
+from uuid import UUID as _UUID
+
+
+def _current_paper_executor():
+    """Returns the global PaperExecutor set by main.py on startup."""
+    from backend.services.trading import strategy_loop as sl
+    return sl._current_executor
+
+
+def _current_paper_schema() -> str:
+    from backend.services.trading import strategy_loop as sl
+    return sl._current_schema
+
+
+@mcp.tool()
+def place_paper_order(
+    strategy_id: str, pair: str, side: str, type: str, qty: str,
+    idempotency_key: str, limit_price: str | None = None,
+) -> dict:
+    """Submit a paper order. Returns the OrderResult as a dict."""
+    import asyncio as _aio
+    from backend.models.trading import OrderResult
+    executor = _current_paper_executor()
+    if executor is None:
+        return {"order_id": None, "status": "rejected",
+                "reject_reason": "EXECUTOR_NOT_READY", "fills": []}
+    coro = executor.submit_order(
+        strategy_id=_UUID(strategy_id),
+        idempotency_key=idempotency_key,
+        pair=pair, side=side, type=type,
+        qty=_Decimal(qty),
+        limit_price=_Decimal(limit_price) if limit_price else None,
+    )
+    try:
+        loop = _aio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None:
+        result: OrderResult = _aio.run(coro)
+    else:
+        # Already inside a running loop — bounce through a worker thread.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_aio.run, coro)
+            result = fut.result()
+    return result.model_dump(mode="json")
+
+
+@mcp.tool()
+def cancel_paper_order(order_id: str) -> dict:
+    import asyncio as _aio
+    executor = _current_paper_executor()
+    if executor is None:
+        return {"ok": False, "reason": "EXECUTOR_NOT_READY"}
+    coro = executor.cancel_order(order_id=_UUID(order_id))
+    try:
+        loop = _aio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None:
+        _aio.run(coro)
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            ex.submit(_aio.run, coro).result()
+    return {"ok": True}
+
+
+@mcp.tool()
+def get_my_paper_state(strategy_id: str) -> dict:
+    from backend.repositories import paper_orders_repo, paper_positions_repo
+    schema = _current_paper_schema()
+    sid = _UUID(strategy_id)
+    rows = paper_positions_repo.get_all(sid, schema=schema)
+    cash = rows.get("AUD", {}).get("qty", "0")
+    positions = {k: v for k, v in rows.items() if k != "AUD"}
+    open_orders = paper_orders_repo.list_open_orders(sid, schema=schema)
+    return {
+        "cash_aud": str(cash),
+        "positions": {k: {"qty": v.get("qty"),
+                          "avg_cost_aud": v.get("avg_cost_aud")}
+                      for k, v in positions.items()},
+        "open_orders": [o.model_dump(mode="json") for o in open_orders],
+    }
+
+
+@mcp.tool()
+def get_my_recent_decisions(strategy_id: str, n: int = 5) -> list[dict]:
+    from backend.repositories import agent_decisions_repo
+    return agent_decisions_repo.list_recent(
+        _UUID(strategy_id), n=n, schema=_current_paper_schema(),
+    )
+
+
+@mcp.tool()
+def get_market_snapshot(pairs: list[str] | None = None) -> dict:
+    """Returns top-of-book per pair from the live LocalOrderBooks."""
+    executor = _current_paper_executor()
+    out: dict[str, dict] = {}
+    pairs = pairs or list((executor._books if executor else {}).keys())
+    for p in pairs:
+        book = executor._books.get(p) if executor else None
+        if book is None or not book.asks or not book.bids:
+            out[p] = {"error": "BOOK_UNAVAILABLE"}
+            continue
+        out[p] = {
+            "top_ask": {"price": str(book.top_ask().price),
+                        "qty": str(book.top_ask().qty)},
+            "top_bid": {"price": str(book.top_bid().price),
+                        "qty": str(book.top_bid().qty)},
+            "mid": str(book.mid()),
+            "ts": book.ts.isoformat() if book.ts else None,
+        }
+    return out
 
 
 if __name__ == "__main__":
