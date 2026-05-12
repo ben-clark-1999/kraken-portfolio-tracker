@@ -7,6 +7,7 @@ import AppLayout from './components/AppLayout'
 import CombinedPage from './pages/CombinedPage'
 import CryptoPage from './pages/CryptoPage'
 import UpPage from './pages/UpPage'
+import StrategiesPage from './pages/StrategiesPage'
 import Login from './pages/Login'
 
 type AuthState = 'checking' | 'authenticated' | 'unauthenticated'
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="/combined" element={<CombinedPage />} />
           <Route path="/crypto" element={<CryptoPage onSignedOut={() => setAuth('unauthenticated')} />} />
           <Route path="/up" element={<UpPage />} />
+          <Route path="/strategies" element={<StrategiesPage />} />
           <Route path="*" element={<Navigate to="/combined" replace />} />
         </Routes>
       </AppLayout>

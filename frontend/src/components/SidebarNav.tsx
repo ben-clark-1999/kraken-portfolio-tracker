@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Layers, Coins, Wallet, type LucideIcon } from 'lucide-react'
+import { Layers, Coins, Wallet, Trophy, type LucideIcon } from 'lucide-react'
 
 interface Route {
   to: string
@@ -9,9 +9,10 @@ interface Route {
 }
 
 const ROUTES: Route[] = [
-  { to: '/combined', label: 'Combined', Icon: Layers, hint: 'All sources' },
-  { to: '/crypto',   label: 'Crypto',   Icon: Coins,  hint: 'Kraken pairs' },
-  { to: '/up',       label: 'UP Bank',  Icon: Wallet, hint: 'AUD transactions' },
+  { to: '/combined',   label: 'Combined',   Icon: Layers, hint: 'All sources' },
+  { to: '/crypto',     label: 'Crypto',     Icon: Coins,  hint: 'Kraken pairs' },
+  { to: '/up',         label: 'UP Bank',    Icon: Wallet, hint: 'AUD transactions' },
+  { to: '/strategies', label: 'Strategies', Icon: Trophy, hint: 'Paper-trading sandbox' },
 ]
 
 export default function SidebarNav() {
