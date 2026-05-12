@@ -4,7 +4,7 @@
 
 ## Execution Progress
 
-**Status as of 2026-05-12 (second session):** Tasks 1–27 complete and pushed. Resume at **Task 28 (`Strategies CRUD + leaderboard + detail endpoints`)**.
+**Status as of 2026-05-12 (third session):** Tasks 1–31 complete and pushed. Resume at **Task 32 (`TypeScript types + API client`)** — Part 12 is the frontend.
 
 | Range | Status | Notes |
 |---|---|---|
@@ -30,14 +30,18 @@
 | 20 — decision_writer | ✅ done | `1383d76` |
 | 21 — persona files | ✅ done | `07500a3` |
 | 22 — persona_loader | ✅ done | `a0715c3` |
-| 23 — 5 MCP tools | ✅ done | `d860256` |
-| 24 — LLM strategy + cost model | ✅ done | `190a48a`; `invoke_for_strategy` in graph.py is intentionally a stub (production wiring at Task 31) |
+| 23 — 5 MCP tools | ✅ done | `d860256`; test_mcp_integration snapshot updated at `9d8f004` |
+| 24 — LLM strategy + cost model | ✅ done | `190a48a`; `invoke_for_strategy` stubbed here, graduated at Task 31 |
 | 25 — equity snapshot | ✅ done | `942c73e`; fixed Decimal(float) imprecision via Decimal(str(...)) |
 | 26 — benchmark snapshot | ✅ done | `05ecf46` |
 | 27 — metrics | ✅ done | `ae24cd5` |
-| 28–37 | ⏳ pending | Start here when resuming |
+| 28 — strategies router | ✅ done | `212d533`; auth-gated + SCHEMA constant for test isolation |
+| 29 — health endpoint | ✅ done | `c206595`; `/_health` placed before `/{strategy_id}` to avoid UUID parsing |
+| 30 — persona evals | ✅ done | `82b24b3`; 6 scenarios in golden set, full runs gated `@pytest.mark.eval` |
+| 31 — startup + seed + invoke_for_strategy | ✅ done | `9d8f004`; `_boot_trading_sandbox` skipped under `PYTEST_CURRENT_TEST` |
+| 32–37 | ⏳ pending | Frontend (`/impeccable`) + manual smoke. Start here when resuming. |
 
-**Resume instructions:** open a fresh Claude Code session in this repo and say *"Use superpowers:executing-plans on `docs/superpowers/plans/2026-05-12-paper-trading-sandbox.md`, starting at Task 28"*. The plan stands alone — no conversation context is needed to continue.
+**Resume instructions:** open a fresh Claude Code session in this repo and say *"Use superpowers:executing-plans on `docs/superpowers/plans/2026-05-12-paper-trading-sandbox.md`, starting at Task 32"*. The plan stands alone — no conversation context is needed to continue. Per project memory, frontend tasks (32–36) MUST use `/impeccable`, not hand-written Tailwind.
 
 **Plan corrections applied during Tasks 1–23** (already documented in commit messages; future tasks must keep applying):
 - `from backend.db.client` → `from backend.db.supabase_client` (correct import).
