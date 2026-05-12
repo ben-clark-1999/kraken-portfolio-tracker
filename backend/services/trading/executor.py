@@ -4,7 +4,7 @@ Spec §5. Same Protocol is later implemented by LiveKrakenExecutor.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal, Protocol
 from uuid import UUID
@@ -143,9 +143,16 @@ class PaperExecutor:
             else:
                 fills = walk_book_for_limit(book=book, side=side, qty=qty,
                                             limit_price=limit_price)
-                status = "filled" if fills and sum(f.qty for f in fills) == qty else (
-                    "partial" if fills else "pending"
-                )
+                if not fills:
+                    if expires_at is None:
+                        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+                    status = "pending"
+                elif sum(f.qty for f in fills) == qty:
+                    status = "filled"
+                else:
+                    if expires_at is None:
+                        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+                    status = "partial"
         except InsufficientDepth:
             order_id = paper_orders_repo.insert_order(
                 strategy_id=strategy_id, idempotency_key=idempotency_key,
@@ -227,3 +234,83 @@ class PaperExecutor:
     async def get_open_orders(self, *, strategy_id: UUID) -> list[OrderRow]:
         from backend.repositories import paper_orders_repo
         return paper_orders_repo.list_open_orders(strategy_id, schema=self._schema)
+
+    async def reconcile_resting_orders(self, pair: str) -> None:
+        """Walk pending/partial limit orders on `pair`; fill those the book has
+        crossed (maker fee). Expired orders are marked 'expired'.
+        """
+        from backend.db.supabase_client import get_supabase
+        from backend.repositories import paper_orders_repo
+        from backend.services.trading.fees import KRAKEN_PRO_SPOT_TIER_1, apply_fee
+        from backend.models.trading import Fill
+
+        book = self._books.get(pair)
+        if book is None:
+            return
+        sb = get_supabase()
+        rows = (sb.schema(self._schema).table("paper_orders").select("*")
+                  .eq("pair", pair)
+                  .in_("status", ["pending", "partial"])
+                  .eq("type", "limit")
+                  .execute().data or [])
+        now = datetime.now(timezone.utc)
+        for r in rows:
+            limit_price = Decimal(r["limit_price"])
+            side = r["side"]
+            order_id = r["id"]
+            # Expiry first.
+            if r.get("expires_at"):
+                exp = datetime.fromisoformat(r["expires_at"].replace("Z", "+00:00"))
+                if exp <= now:
+                    paper_orders_repo.update_order_status(
+                        order_id, "expired", schema=self._schema,
+                    )
+                    continue
+            # Determine remaining qty.
+            filled_so_far = (sb.schema(self._schema).table("paper_fills")
+                               .select("qty").eq("order_id", order_id)
+                               .execute().data or [])
+            already = sum(Decimal(f["qty"]) for f in filled_so_far)
+            remaining = Decimal(r["qty"]) - already
+            if remaining <= 0:
+                paper_orders_repo.update_order_status(
+                    order_id, "filled", schema=self._schema,
+                )
+                continue
+            # Does the book cross?
+            if side == "buy":
+                if not book.asks or book.asks[0].price > limit_price:
+                    continue
+                levels = book.asks
+                cap_dir = "max"
+            else:
+                if not book.bids or book.bids[0].price < limit_price:
+                    continue
+                levels = book.bids
+                cap_dir = "min"
+            # Walk levels; charge MAKER (we'd been resting).
+            taken_fills: list[Fill] = []
+            rem = remaining
+            for lvl in levels:
+                if cap_dir == "max" and lvl.price > limit_price:
+                    break
+                if cap_dir == "min" and lvl.price < limit_price:
+                    break
+                take = min(lvl.qty, rem)
+                if take <= 0:
+                    continue
+                fee = apply_fee(qty=take, price=lvl.price, role="maker",
+                                schedule=KRAKEN_PRO_SPOT_TIER_1)
+                taken_fills.append(Fill(
+                    qty=take, price=lvl.price, fee_aud=fee, fee_role="maker",
+                    book_state_hash=book.checksum, filled_at=now,
+                ))
+                rem -= take
+                if rem == 0:
+                    break
+            if not taken_fills:
+                continue
+            paper_orders_repo.insert_fills(order_id, taken_fills, schema=self._schema)
+            new_status = "filled" if rem == 0 else "partial"
+            paper_orders_repo.update_order_status(order_id, new_status, schema=self._schema)
+            await self._apply_positions(UUID(r["strategy_id"]), pair, side, taken_fills)
