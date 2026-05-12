@@ -1,9 +1,19 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Trophy } from 'lucide-react'
 
 import LeaderboardTable from '../components/strategies/LeaderboardTable'
-import { fetchLeaderboard } from '../api/strategies'
-import type { LeaderboardRow } from '../types/strategies'
+import EquityChart from '../components/strategies/EquityChart'
+import { fetchEquityCurve, fetchLeaderboard } from '../api/strategies'
+import type {
+  EquityCurveResponse,
+  EquityRange,
+  LeaderboardRow,
+} from '../types/strategies'
+
+const EMPTY_BENCHMARKS: EquityCurveResponse['benchmarks'] = {
+  btc_hodl: [],
+  alt_basket_equal_weight: [],
+}
 
 export default function StrategiesPage() {
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null)
@@ -11,6 +21,9 @@ export default function StrategiesPage() {
   // Wired into the detail drawer in Task 36; kept here so leaderboard clicks
   // already update the canonical state.
   const [, setSelectedId] = useState<string | null>(null)
+
+  const [range, setRange] = useState<EquityRange>('30d')
+  const [curves, setCurves] = useState<EquityCurveResponse[] | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -20,6 +33,31 @@ export default function StrategiesPage() {
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)) })
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    if (!rows || rows.length === 0) {
+      setCurves(null)
+      return
+    }
+    let cancelled = false
+    Promise.all(rows.map(r => fetchEquityCurve(r.id, range)))
+      .then(responses => { if (!cancelled) setCurves(responses) })
+      .catch(() => {
+        if (!cancelled) setCurves([])
+      })
+    return () => { cancelled = true }
+  }, [rows, range])
+
+  const equitySeries = useMemo(() => {
+    if (!rows || !curves) return null
+    return rows.map((r, i) => ({
+      id: r.id,
+      name: r.name,
+      curve: curves[i]?.strategy ?? [],
+    }))
+  }, [rows, curves])
+
+  const benchmarks = curves?.[0]?.benchmarks ?? EMPTY_BENCHMARKS
 
   const loading = rows === null && error === null
   const isEmpty = rows !== null && rows.length === 0
@@ -85,12 +123,19 @@ export default function StrategiesPage() {
 
             <section className="border-t border-surface-border pt-10 pb-16">
               <SectionHeader>Equity vs. benchmarks</SectionHeader>
-              <div
-                data-slot="equity-chart"
-                className="h-72 rounded-lg border border-surface-border/60 bg-surface-raised/30 flex items-center justify-center text-sm text-txt-muted"
-              >
-                Chart renders in the next commit.
-              </div>
+              {equitySeries ? (
+                <EquityChart
+                  strategies={equitySeries}
+                  benchmarks={benchmarks}
+                  range={range}
+                  onRangeChange={setRange}
+                />
+              ) : (
+                <div
+                  className="h-80 rounded-lg bg-surface-border/30 animate-pulse-subtle"
+                  aria-busy="true"
+                />
+              )}
             </section>
           </>
         )}
