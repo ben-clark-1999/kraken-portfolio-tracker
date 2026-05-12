@@ -15,14 +15,99 @@ from backend.services.trading.trigger_state import TriggerConfig, TriggerState
 logger = logging.getLogger(__name__)
 
 
-# Re-export for monkeypatching in tests; real implementations land in
-# tasks 20 and 24.
+# Re-export for monkeypatching in tests; real LLM implementation lands in Task 24.
 async def invoke_llm_strategy(strategy: StrategyRow, event) -> None:
     raise NotImplementedError("wired in Task 24")
 
 
+# Module-level executor handle, set by main.py at boot (Task 31). Tests can
+# also assign a fake here.
+_current_executor = None
+# Module-level schema; main.py uses "public", tests can set to "test".
+_current_schema: str = "public"
+
+
+def set_executor(executor, *, schema: str = "public") -> None:
+    global _current_executor, _current_schema
+    _current_executor = executor
+    _current_schema = schema
+
+
 async def invoke_deterministic_strategy(strategy: StrategyRow, event) -> None:
-    raise NotImplementedError("wired in Task 20")
+    """Deterministic execution path — spec §6.4."""
+    from decimal import Decimal
+    from time import perf_counter
+    from backend.repositories import paper_positions_repo
+    from backend.services.trading.deterministic import compute_rebalance_orders
+    from backend.services.trading.decision_writer import write_agent_decision
+
+    started = perf_counter()
+    cfg = strategy.deterministic_config
+    if cfg is None:
+        raise ValueError(f"Strategy {strategy.name} is deterministic but has no config")
+
+    # Snapshot current position values using attached book mids.
+    rows = paper_positions_repo.get_all(strategy.id, schema=_current_schema)
+    mids: dict[str, Decimal] = {}
+    positions_aud: dict[str, Decimal] = {}
+    for asset, row in rows.items():
+        qty = Decimal(row["qty"])
+        if asset == "AUD":
+            positions_aud[asset] = qty
+            continue
+        pair = f"{asset}/AUD"
+        book = (_current_executor._books.get(pair)
+                if _current_executor is not None and hasattr(_current_executor, "_books")
+                else None)
+        if book is None:
+            mids[pair] = Decimal(row.get("avg_cost_aud") or "0")
+        else:
+            mids[pair] = book.mid()
+        positions_aud[asset] = qty * mids[pair]
+
+    # For first-time runs the mids dict only has entries for assets we already
+    # hold; populate it for the target pairs too, defaulting to 1 if unknown.
+    for pair in cfg.allocations:
+        mids.setdefault(pair, Decimal("1"))
+
+    target_orders = compute_rebalance_orders(
+        positions_aud=positions_aud,
+        target_weights=cfg.allocations,
+        starting_balance_aud=strategy.starting_balance_aud,
+        mids=mids,
+    )
+
+    decision_id = write_agent_decision(
+        strategy_id=strategy.id, execution_mode="deterministic",
+        # mode='json' coerces datetime → ISO string so JSONB serialisation works.
+        trigger_event=(event.model_dump(mode="json") if hasattr(event, "model_dump")
+                       else dict(event)),
+        input_snapshot={"positions_aud": {k: str(v) for k, v in positions_aud.items()},
+                        "mids": {k: str(v) for k, v in mids.items()}},
+        persona_prompt_hash=None, model=None,
+        input_tokens=0, output_tokens=0, cost_aud=Decimal("0"),
+        tool_calls=[{"tool": "place_paper_order",
+                     "args": {"pair": o.pair, "side": o.side,
+                              "notional_aud": str(o.notional_aud)}}
+                    for o in target_orders],
+        agent_output=None,
+        latency_ms=int((perf_counter() - started) * 1000),
+        error=None,
+        schema=_current_schema,
+    )
+
+    if strategy.dry_run or _current_executor is None:
+        return
+
+    for seq, o in enumerate(target_orders):
+        # Convert notional → qty at current mid.
+        mid = mids.get(o.pair) or Decimal("1")
+        qty = (o.notional_aud / mid)
+        await _current_executor.submit_order(
+            strategy_id=strategy.id,
+            idempotency_key=f"{strategy.id}:{decision_id}:{seq}",
+            pair=o.pair, side=o.side, type="market", qty=qty,
+        )
 
 
 async def emergency_stop(strategy: StrategyRow, exc: BaseException) -> None:
