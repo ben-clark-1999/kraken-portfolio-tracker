@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import sys
 import time
 from contextlib import AsyncExitStack
@@ -23,10 +24,17 @@ logger = logging.getLogger(__name__)
 # Project root: backend/agent/tools.py → backend/agent → backend → project root
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# MCP's stdio_client uses a sanitized minimal default env when env=None — it
+# does not pass through os.environ. Our MCP server is our own code (not a
+# third-party tool), so we pass the parent process's env so the subprocess
+# can read KRAKEN_API_KEY / SUPABASE_URL / etc. Locally this didn't matter
+# because pydantic-settings falls back to the .env file on disk; in the
+# Docker image there's no .env so the subprocess needs the env vars directly.
 MCP_SERVER_PARAMS = StdioServerParameters(
     command=sys.executable,
     args=["-m", "backend.mcp_server"],
     cwd=str(_PROJECT_ROOT),
+    env=dict(os.environ),
 )
 
 
