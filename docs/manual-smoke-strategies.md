@@ -3,7 +3,7 @@
 Run before each major release / when verifying the system end-to-end.
 
 ## 1. Backend boot
-- [ ] `backend/.venv/bin/uvicorn backend.main:app --reload --port 8001` starts without exceptions.
+- [ ] `backend/.venv/bin/uvicorn backend.main:app --reload --port 8000` starts without exceptions.
 - [ ] `curl http://localhost:8001/api/strategies/` returns three rows: DCA-Baseline, Trend-Follower, Mean-Reverter.
 - [ ] `curl http://localhost:8001/api/strategies/_health` returns four `ws_feed` entries with `age_s < 5` within 10 s of boot.
 
@@ -57,3 +57,4 @@ Run before each major release / when verifying the system end-to-end.
 - Backend persona-conversational chat mode (`/api/agent/chat?mode=persona_conversational&strategy_id=…`) — required for `PersonaChatTab` to wire up safely with a read-only tool surface.
 - LiveKrakenExecutor — spec §5.8.
 - Backtester (Phase 2).
+- **LocalOrderBook checksum hardening.** Verification is currently soft (logged, not fatal) because the algorithm doesn't know each pair's `pair_decimals` / `lot_decimals` and `Decimal.normalize()` was stripping trailing zeros. Proper fix: extend `fetch_asset_pairs` in `min_order.py` to also return precision metadata, thread it into `LocalOrderBook.compute_checksum`, and reinstate the hard-fail behaviour. ~30-45 min and 4 files.
