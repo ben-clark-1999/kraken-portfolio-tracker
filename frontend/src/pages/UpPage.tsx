@@ -5,11 +5,12 @@ import TransactionList from '../components/up/TransactionList'
 import SpendingDonut from '../components/up/SpendingDonut'
 import SyncStatusBanner from '../components/up/SyncStatusBanner'
 import RangePicker, { type Range, RANGE_DAYS } from '../components/combined/RangePicker'
+import RecurringList from '../components/up/RecurringList'
 import { useUpSyncStatus } from '../hooks/useUpSyncStatus'
 import {
-  fetchAccounts, fetchTransactions, fetchSpendingSummary,
+  fetchAccounts, fetchTransactions, fetchSpendingSummary, fetchRecurring,
 } from '../api/up'
-import type { UpAccount, UpTransaction } from '../types/up'
+import type { UpAccount, UpTransaction, RecurringCharge } from '../types/up'
 
 function rangeSinceIso(range: Range): string {
   const days = RANGE_DAYS[range]
@@ -43,10 +44,12 @@ function fmtSigned(n: number): string {
 export default function UpPage() {
   const sync = useUpSyncStatus()
   const [accounts, setAccounts] = useState<UpAccount[]>([])
+  const [recurring, setRecurring] = useState<RecurringCharge[]>([])
   const [transactions, setTransactions] = useState<UpTransaction[]>([])
   const [spending, setSpending] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [accountsLoading, setAccountsLoading] = useState(true)
+  const [recurringLoading, setRecurringLoading] = useState(true)
   const [range, setRange] = useState<Range>('1M')
 
   const since = useMemo(() => rangeSinceIso(range), [range])
@@ -55,9 +58,18 @@ export default function UpPage() {
   useEffect(() => {
     let cancelled = false
     setAccountsLoading(true)
-    fetchAccounts()
-      .then(a => { if (!cancelled) { setAccounts(a); setAccountsLoading(false) } })
-      .catch(() => { if (!cancelled) setAccountsLoading(false) })
+    setRecurringLoading(true)
+    Promise.all([
+      fetchAccounts(),
+      fetchRecurring(),
+    ]).then(([a, r]) => {
+      if (cancelled) return
+      setAccounts(a); setAccountsLoading(false)
+      setRecurring(r); setRecurringLoading(false)
+    }).catch(() => {
+      if (cancelled) return
+      setAccountsLoading(false); setRecurringLoading(false)
+    })
     return () => { cancelled = true }
   }, [sync?.state])
 
@@ -144,6 +156,11 @@ export default function UpPage() {
         {/* Spending breakdown */}
         <Section title="Spending by category">
           {loading ? <Skeleton tall /> : <SpendingDonut breakdown={spending} />}
+        </Section>
+
+        {/* Subscriptions */}
+        <Section title="Subscriptions">
+          {recurringLoading ? <Skeleton tall /> : <RecurringList charges={recurring} />}
         </Section>
 
         {/* Transactions */}
