@@ -134,13 +134,11 @@ export default function CryptoPage({ onSignedOut }: CryptoPageProps) {
       <div className="flex-1 min-w-0">
         <div className="px-8 pt-6">
           <div className="w-full max-w-[1600px] mx-auto flex items-center justify-end gap-4">
-            <div className="border border-surface-border rounded-md px-3 py-1.5 hover:border-kraken/50 transition-colors">
-              <AgentInput
-                onSubmit={handleAgentSubmit}
-                onFocus={() => setPanelOpen(true)}
-                panelOpen={panelOpen}
-              />
-            </div>
+            <AgentInput
+              onSubmit={handleAgentSubmit}
+              onFocus={() => setPanelOpen(true)}
+              panelOpen={panelOpen}
+            />
             <SignOutButton onSignedOut={onSignedOut} />
           </div>
         </div>
