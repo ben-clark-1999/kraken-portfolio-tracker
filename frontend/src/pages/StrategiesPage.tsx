@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Trophy } from 'lucide-react'
 
 import LeaderboardTable from '../components/strategies/LeaderboardTable'
 import EquityChart from '../components/strategies/EquityChart'
+import StrategyDetailDrawer from '../components/strategies/StrategyDetailDrawer'
+import SystemStatusBanner from '../components/strategies/SystemStatusBanner'
 import { fetchEquityCurve, fetchLeaderboard } from '../api/strategies'
 import type {
   EquityCurveResponse,
@@ -18,14 +20,12 @@ const EMPTY_BENCHMARKS: EquityCurveResponse['benchmarks'] = {
 export default function StrategiesPage() {
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Wired into the detail drawer in Task 36; kept here so leaderboard clicks
-  // already update the canonical state.
-  const [, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const [range, setRange] = useState<EquityRange>('30d')
   const [curves, setCurves] = useState<EquityCurveResponse[] | null>(null)
 
-  useEffect(() => {
+  const loadLeaderboard = useCallback(() => {
     let cancelled = false
     setError(null)
     fetchLeaderboard()
@@ -33,6 +33,8 @@ export default function StrategiesPage() {
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)) })
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => loadLeaderboard(), [loadLeaderboard])
 
   useEffect(() => {
     if (!rows || rows.length === 0) {
@@ -76,12 +78,8 @@ export default function StrategiesPage() {
               Multi-strategy paper-trading sandbox
             </p>
           </div>
-          <div
-            data-slot="system-status-banner"
-            className="min-h-[28px]"
-            aria-hidden="true"
-          >
-            {/* SystemStatusBanner mounts in Task 36 */}
+          <div className="pt-1">
+            <SystemStatusBanner />
           </div>
         </header>
 
@@ -141,6 +139,12 @@ export default function StrategiesPage() {
         )}
 
       </div>
+
+      <StrategyDetailDrawer
+        strategyId={selectedId}
+        onClose={() => setSelectedId(null)}
+        onStateChanged={loadLeaderboard}
+      />
     </main>
   )
 }

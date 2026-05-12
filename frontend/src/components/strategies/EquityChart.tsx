@@ -32,6 +32,8 @@ interface Props {
   benchmarks: BenchmarkSet
   range: EquityRange
   onRangeChange: (r: EquityRange) => void
+  showRangePicker?: boolean
+  height?: string
 }
 
 const STRATEGY_PALETTE = [
@@ -192,7 +194,14 @@ function RangeButton({
   )
 }
 
-export default function EquityChart({ strategies, benchmarks, range, onRangeChange }: Props) {
+export default function EquityChart({
+  strategies,
+  benchmarks,
+  range,
+  onRangeChange,
+  showRangePicker = true,
+  height = 'h-80',
+}: Props) {
   const series: SeriesMeta[] = useMemo(() => {
     const strat: SeriesMeta[] = strategies.map((s, i) => ({
       key: s.id,
@@ -228,27 +237,29 @@ export default function EquityChart({ strategies, benchmarks, range, onRangeChan
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-end">
-        <div
-          role="tablist"
-          aria-label="Time range"
-          className="inline-flex items-center gap-px rounded-md border border-surface-border bg-surface p-0.5"
-        >
-          {RANGE_ORDER.map(r => (
-            <RangeButton key={r} value={r} current={range} onChange={onRangeChange} />
-          ))}
+      {showRangePicker && (
+        <div className="flex items-center justify-end">
+          <div
+            role="tablist"
+            aria-label="Time range"
+            className="inline-flex items-center gap-px rounded-md border border-surface-border bg-surface p-0.5"
+          >
+            {RANGE_ORDER.map(r => (
+              <RangeButton key={r} value={r} current={range} onChange={onRangeChange} />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {data.length === 0 ? (
-        <div className="h-72 rounded-lg border border-surface-border/60 bg-surface-raised/30 flex flex-col items-center justify-center text-center px-6">
+        <div className={`${height} rounded-lg border border-surface-border/60 bg-surface-raised/30 flex flex-col items-center justify-center text-center px-6`}>
           <p className="text-sm text-txt-secondary">No data yet</p>
           <p className="mt-1 text-xs text-txt-muted">
             The first equity snapshot lands at the top of the next hour.
           </p>
         </div>
       ) : (
-        <div className="h-80">
+        <div className={height}>
           <ResponsiveContainer>
             <LineChart data={data} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#2a2735" strokeDasharray="2 4" vertical={false} />
