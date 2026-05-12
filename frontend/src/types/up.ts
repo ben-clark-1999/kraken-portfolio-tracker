@@ -52,3 +52,16 @@ export interface CombinedSummary {
   up: number
   total: number
 }
+
+export type RecurringCadence = 'weekly' | 'fortnightly' | 'monthly' | 'yearly'
+
+export interface RecurringCharge {
+  name: string
+  sample_description: string
+  cadence: RecurringCadence
+  median_amount: number
+  last_charged_at: string
+  next_expected_at: string
+  occurrence_count: number
+  monthly_equivalent: number
+}

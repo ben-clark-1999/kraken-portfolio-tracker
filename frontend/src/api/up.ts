@@ -1,6 +1,6 @@
 import { apiFetch } from './client'
 import type {
-  UpAccount, UpTransaction, CashflowRow, SyncStatus,
+  UpAccount, UpTransaction, CashflowRow, SyncStatus, RecurringCharge,
 } from '../types/up'
 
 export async function fetchAccounts(): Promise<UpAccount[]> {
@@ -47,4 +47,10 @@ export async function fetchSyncStatus(): Promise<SyncStatus> {
 export async function triggerSyncRetry(): Promise<void> {
   const r = await apiFetch('/api/up/sync/retry', { method: 'POST' })
   if (!r.ok) throw new Error(`retry: ${r.status}`)
+}
+
+export async function fetchRecurring(): Promise<RecurringCharge[]> {
+  const r = await apiFetch('/api/up/recurring')
+  if (!r.ok) throw new Error(`recurring: ${r.status}`)
+  return r.json()
 }
