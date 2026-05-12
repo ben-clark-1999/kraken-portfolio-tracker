@@ -29,12 +29,13 @@ def _tx_row(tx_id: str, status: str = "SETTLED", category_id: str | None = "rest
 @pytest.mark.asyncio
 @respx.mock
 async def test_list_transactions_paginates_and_parses():
+    next_url = "https://api.up.com.au/api/v1/transactions?page%5Bafter%5D=cursor1"
     respx.get("https://api.up.com.au/api/v1/transactions").mock(return_value=Response(
         200,
         json={"data": [_tx_row("t1"), _tx_row("t2")],
-              "links": {"prev": None, "next": "https://api.up.com.au/api/v1/transactions?page%5Bafter%5D=cursor1"}},
+              "links": {"prev": None, "next": next_url}},
     ))
-    respx.get("https://api.up.com.au/api/v1/transactions", params={"page[after]": "cursor1"}).mock(return_value=Response(
+    respx.get(next_url).mock(return_value=Response(
         200,
         json={"data": [_tx_row("t3", status="HELD", category_id=None)],
               "links": {"prev": None, "next": None}},
