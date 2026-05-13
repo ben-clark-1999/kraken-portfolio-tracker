@@ -19,7 +19,12 @@ interface Anomaly {
 const AMBER = '#F59E0B' // not in palette — used inline so banner reads as warning
 const FEED_AMBER_S = 30
 const FEED_RED_S = 300
-const DB_RED_MS = 500
+// Cross-region deploy (Railway US-East ↔ Supabase Sydney) has a ~200ms
+// baseline round trip per query. p99 routinely sits in the 400-900ms band
+// without anything actually being wrong. The threshold was originally 500ms
+// (a sensible value for a same-machine local backend) — bump it so the
+// banner only fires when latency is genuinely degraded vs typical.
+const DB_RED_MS = 1500
 
 function classify(h: HealthResponse): { level: Level; anomalies: Anomaly[] } {
   const anomalies: Anomaly[] = []
