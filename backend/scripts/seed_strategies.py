@@ -107,7 +107,10 @@ def _seed_llm_strategy(
         "starting_balance_aud": "1000",
         "trigger_config": {
             "triggers": [
-                {"type": "interval", "minutes": 60},
+                # 6-hourly heartbeat keeps LLM cost in the ~AUD 12/month band.
+                # Event-driven triggers (breakouts / stretches / fills) still
+                # fire as before for actual signals.
+                {"type": "interval", "minutes": 360},
                 *triggers_extra,
                 {"type": "order_filled"},
             ],
