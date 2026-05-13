@@ -36,9 +36,12 @@ async def _up_sync_tick() -> None:
 
 def start_scheduler() -> None:
     scheduler.add_job(_hourly_snapshot, "interval", hours=1, id="hourly_snapshot")
-    scheduler.add_job(_up_sync_tick, "interval", minutes=15, id="up_sync", next_run_time=None)
+    # IntervalTrigger schedules the first run at start_date + interval (i.e.,
+    # ~15 min from now). Don't pass next_run_time=None here — that adds the
+    # job in a paused state and the interval never fires. The immediate kick
+    # below handles the boot-time backfill so we don't wait 15 min for it.
+    scheduler.add_job(_up_sync_tick, "interval", minutes=15, id="up_sync")
     scheduler.start()
-    # Kick off first UP sync immediately (in background) so first-run backfill starts
     asyncio.get_event_loop().create_task(_up_sync_tick())
 
 
