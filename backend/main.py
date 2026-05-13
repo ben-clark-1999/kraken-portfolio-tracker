@@ -109,18 +109,23 @@ async def _boot_trading_sandbox(app: FastAPI, tools) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── MCP tools ───────────────────────────────────────────────────
-    from backend.agent.tools import MCPToolManager
+    # ── Agent tools (in-process — no subprocess) ─────────────────────
+    # The MCP-stdio subprocess couldn't see the parent's LocalOrderBook
+    # instances or PaperExecutor singleton, so paper-trading tools always
+    # returned BOOK_UNAVAILABLE / EXECUTOR_NOT_READY. Loading the same
+    # functions in-process fixes that — see backend/agent/local_tools.py.
+    # MCPToolManager and backend/mcp_server.py are still on disk in case
+    # we want to expose an external MCP server later, but nothing uses
+    # them at runtime now.
+    from backend.agent.local_tools import load_local_tools
 
-    tool_manager = MCPToolManager()
+    app.state.mcp_tool_manager = None
     try:
-        tools = await tool_manager.start()
-        app.state.mcp_tool_manager = tool_manager
-        logger.info("[Startup] MCP tools loaded: %d", len(tools))
+        tools = load_local_tools()
+        logger.info("[Startup] Agent tools loaded: %d", len(tools))
     except Exception:
-        logger.exception("[Startup] MCP tool loading failed — agent unavailable")
+        logger.exception("[Startup] Agent tool loading failed — agent unavailable")
         tools = []
-        app.state.mcp_tool_manager = None
 
     # ── Checkpointer ────────────────────────────────────────────────
     from backend.agent.checkpointer import create_checkpointer
@@ -163,8 +168,6 @@ async def lifespan(app: FastAPI):
     if feed_task is not None:
         feed_task.cancel()
     stop_scheduler()
-    if app.state.mcp_tool_manager:
-        await app.state.mcp_tool_manager.stop()
 
 
 app = FastAPI(title="Kraken Portfolio Tracker", lifespan=lifespan)
