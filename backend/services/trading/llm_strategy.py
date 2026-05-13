@@ -7,6 +7,7 @@ LangGraph agent — we don't reinvent it here.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 from time import perf_counter
 
@@ -69,10 +70,24 @@ def _assemble_context(strategy: StrategyRow, event, *, schema: str = "public") -
 
 
 async def invoke_llm_strategy(strategy: StrategyRow, event) -> None:
+    from backend.repositories import agent_decisions_repo, strategies_repo
     from backend.services.trading import strategy_loop as sl
     schema = sl._current_schema
     started = perf_counter()
     persona = load_persona(strategy.persona_key)
+    current_hash = persona_hash(strategy.persona_key)
+
+    # Persona-prompt drift detection (spec §4.1 persona_prompt_stable_since):
+    # if the persona file changed since the last invocation, reset the
+    # strategy's stable-since timestamp so the leaderboard's stability
+    # asterisk fires for 7d/30d returns that span the change.
+    recent = agent_decisions_repo.list_recent(strategy.id, n=1, schema=schema)
+    last_hash = recent[0].get("persona_prompt_hash") if recent else None
+    if last_hash != current_hash:
+        strategies_repo.update_persona_stable_since(
+            strategy.id, datetime.now(timezone.utc), schema=schema,
+        )
+
     user_msg, snapshot = _assemble_context(strategy, event, schema=schema)
     model = strategy.model_preference or "claude-sonnet-4-6"
 
@@ -100,7 +115,7 @@ async def invoke_llm_strategy(strategy: StrategyRow, event) -> None:
         trigger_event=(event.model_dump(mode="json") if hasattr(event, "model_dump")
                        else dict(event)),
         input_snapshot=snapshot,
-        persona_prompt_hash=persona_hash(strategy.persona_key),
+        persona_prompt_hash=current_hash,
         model=response.get("model", model),
         input_tokens=response.get("input_tokens", 0),
         output_tokens=response.get("output_tokens", 0),
