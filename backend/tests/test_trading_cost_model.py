@@ -22,8 +22,19 @@ def test_compute_cost_aud_for_sonnet_call():
     assert cost < Decimal("0.50")   # sanity bound
 
 
-def test_unknown_model_returns_zero_with_warning(caplog):
+def test_unknown_model_estimates_at_sonnet_rates_with_warning(caplog):
+    # Per the post-mortem on 2026-05-17 (USD 5 of credit silently burned
+    # while the ledger reported $0), unknown models must NEVER report zero
+    # cost. Conservative fallback is claude-sonnet-4-6 pricing.
+    import logging
+    caplog.set_level(logging.WARNING)
     cost = compute_cost_aud(model="unknown-model-x",
                             input_tokens=1000, output_tokens=100,
                             aud_per_usd=Decimal("1.50"))
-    assert cost == Decimal("0")
+    sonnet_reference = compute_cost_aud(model="claude-sonnet-4-6",
+                                        input_tokens=1000, output_tokens=100,
+                                        aud_per_usd=Decimal("1.50"))
+    assert cost > Decimal("0"), "unknown model must not silently report $0 cost"
+    assert cost == sonnet_reference, "unknown model should price at Sonnet 4.6"
+    assert any("Unknown model" in r.message for r in caplog.records), \
+        "should log a warning when falling back"

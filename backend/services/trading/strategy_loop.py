@@ -140,8 +140,16 @@ async def invoke_deterministic_strategy(strategy: StrategyRow, event) -> None:
         return
 
     for seq, o in enumerate(target_orders):
-        # Convert notional → qty at current mid.
-        mid = mids.get(o.pair) or Decimal("1")
+        # Convert notional → qty at current mid. The upstream block guarantees
+        # `mids` has an entry for every allocation pair (or returned early),
+        # so this lookup must succeed. The previous `or Decimal("1")` fallback
+        # silently corrupted order size on first fire — keep it explicit.
+        mid = mids.get(o.pair)
+        if mid is None or mid <= 0:
+            raise RuntimeError(
+                f"No mid for {o.pair} at submission time — refusing to "
+                f"convert notional {o.notional_aud} to qty"
+            )
         qty = (o.notional_aud / mid)
         await _current_executor.submit_order(
             strategy_id=strategy.id,

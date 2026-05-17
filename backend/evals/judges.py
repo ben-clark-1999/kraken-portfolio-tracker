@@ -65,7 +65,7 @@ class _JudgeOutput(BaseModel):
 
 
 # Default judge model = same as the agent. Override via env var for cheap iteration.
-DEFAULT_JUDGE_MODEL = "claude-sonnet-4-5"
+DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"   # Sonnet 4.5 was never a real model id
 
 
 def _judge_model_name() -> str:

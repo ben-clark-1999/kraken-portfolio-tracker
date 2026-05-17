@@ -162,11 +162,32 @@ async def lifespan(app: FastAPI):
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────
-    for t in list(getattr(app.state, "trading_loop_tasks", []) or []):
-        t.cancel()
+    tasks_to_drain: list[asyncio.Task] = list(
+        getattr(app.state, "trading_loop_tasks", []) or []
+    )
     feed_task = getattr(app.state, "trading_feed_task", None)
     if feed_task is not None:
-        feed_task.cancel()
+        tasks_to_drain.append(feed_task)
+
+    for t in tasks_to_drain:
+        t.cancel()
+
+    # Give cancelled tasks a few seconds to clean up in-flight work (e.g. an
+    # order mid-submission) rather than letting Railway kill the container
+    # with half-written state. Bounded so redeploys don't hang.
+    if tasks_to_drain:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks_to_drain, return_exceptions=True),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[Shutdown] %d task(s) did not finish within 5s; container "
+                "kill imminent",
+                len(tasks_to_drain),
+            )
+
     stop_scheduler()
 
 

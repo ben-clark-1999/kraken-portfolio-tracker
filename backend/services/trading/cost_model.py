@@ -42,10 +42,20 @@ def compute_cost_aud(
     model: str, input_tokens: int, output_tokens: int,
     aud_per_usd: Decimal,
 ) -> Decimal:
-    if model not in MODEL_PRICES_USD_PER_M:
-        logger.warning("No price entry for model %s; cost recorded as 0", model)
-        return Decimal("0")
-    in_price, out_price = MODEL_PRICES_USD_PER_M[model]
+    if model in MODEL_PRICES_USD_PER_M:
+        in_price, out_price = MODEL_PRICES_USD_PER_M[model]
+    else:
+        # Conservative fallback: price unknown models at Sonnet 4.6 rates so
+        # spend is always recorded (high estimate, never silent zero). The
+        # previous default-to-zero hid real cost; the user lost USD 5 of
+        # credit while the cost ledger reported pennies. Loud warning so
+        # the operator notices the missing price entry.
+        in_price, out_price = MODEL_PRICES_USD_PER_M["claude-sonnet-4-6"]
+        logger.warning(
+            "Unknown model %s — estimating cost at claude-sonnet-4-6 rates "
+            "(probable over-estimate; add the real prices to "
+            "MODEL_PRICES_USD_PER_M to fix attribution)", model,
+        )
     usd_cost = (Decimal(input_tokens) * in_price
                 + Decimal(output_tokens) * out_price) / Decimal(1_000_000)
     return (usd_cost * aud_per_usd).quantize(Decimal("0.0001"))
