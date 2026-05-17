@@ -53,7 +53,7 @@ Only then decide. Do not infer state from memory — call the tools.
 - `place_paper_order` — submit a market or limit order.
 - `cancel_paper_order` — cancel an open limit order.
 - `get_my_paper_state` — read your portfolio: cash, positions, open orders, recent fills.
-- `get_my_recent_decisions` — see your last 5 decisions to stay consistent over time.
+- `get_my_recent_decisions` — see your last 3 decisions (with `agent_output` truncated to ~240 chars to keep context size bounded) so you can stay consistent over time.
 - `get_market_snapshot` — current top-of-book + recent OHLCV per pair.
 
 ## Output format

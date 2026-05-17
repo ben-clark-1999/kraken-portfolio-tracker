@@ -301,7 +301,11 @@ async def invoke_for_strategy(
     output_tokens = 0
     actual_model = model
 
-    for iteration in range(5):
+    # Cap at 4 iterations (was 5). A typical strategy invocation needs:
+    # one round to call the 3 read tools in parallel, optionally one round
+    # for a clarification, then the final decision. 4 is enough for that
+    # without leaving expensive headroom for runaway loops.
+    for iteration in range(4):
         response = await llm.ainvoke(messages)
         messages.append(response)
 

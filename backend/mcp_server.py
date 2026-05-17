@@ -417,11 +417,30 @@ def get_my_paper_state(strategy_id: str) -> dict:
 
 
 @mcp.tool()
-def get_my_recent_decisions(strategy_id: str, n: int = 5) -> list[dict]:
+def get_my_recent_decisions(strategy_id: str, n: int = 3) -> list[dict]:
+    """Recent decisions for this strategy, with `agent_output` truncated.
+
+    Without truncation, every new decision's context grows because the next
+    invocation pulls the full agent_output text of N prior decisions back
+    in. Observed 2026-05-13 → 2026-05-17 the input-token count climbed from
+    ~9k to ~60k per call, blowing the credit budget. Keep only the first
+    240 characters so Claude can sense recent stance without paying for
+    every prior paragraph verbatim.
+    """
     from backend.repositories import agent_decisions_repo
-    return agent_decisions_repo.list_recent(
+    rows = agent_decisions_repo.list_recent(
         _UUID(strategy_id), n=n, schema=_current_paper_schema(),
     )
+    trimmed: list[dict] = []
+    for r in rows:
+        copy = dict(r)
+        agent_output = copy.get("agent_output")
+        if agent_output:
+            text = str(agent_output)
+            if len(text) > 240:
+                copy["agent_output"] = text[:240] + "…[truncated]"
+        trimmed.append(copy)
+    return trimmed
 
 
 @mcp.tool()

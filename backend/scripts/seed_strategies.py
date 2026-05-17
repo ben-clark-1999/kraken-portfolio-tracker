@@ -107,10 +107,10 @@ def _seed_llm_strategy(
         "starting_balance_aud": "1000",
         "trigger_config": {
             "triggers": [
-                # 6-hourly heartbeat keeps LLM cost in the ~AUD 12/month band.
-                # Event-driven triggers (breakouts / stretches / fills) still
-                # fire as before for actual signals.
-                {"type": "interval", "minutes": 360},
+                # 12-hourly heartbeat keeps LLM cost down. Event-driven
+                # triggers (breakouts / stretches / fills) still fire as
+                # before for actual signals.
+                {"type": "interval", "minutes": 720},
                 *triggers_extra,
                 {"type": "order_filled"},
             ],
@@ -122,7 +122,10 @@ def _seed_llm_strategy(
         "kill_criteria": _KILL_CRITERIA_DEFAULT,
         "status": "active",
         "dry_run": False,
-        "model_preference": "claude-sonnet-4-6",
+        # Haiku 4.5 — ~4x cheaper than Sonnet per token. Acceptable quality
+        # for paper-trading at v1 stakes; revisit if/when behaviour shows
+        # the model is missing nuance the larger model would catch.
+        "model_preference": "claude-haiku-4-5",
     }
     sid = sb.schema(schema).table("strategies").insert(payload).execute().data[0]["id"]
     _seed_cash(sid, Decimal("1000"), schema)
