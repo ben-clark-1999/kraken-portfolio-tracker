@@ -68,10 +68,47 @@ async def invoke_deterministic_strategy(strategy: StrategyRow, event) -> None:
             mids[pair] = book.mid()
         positions_aud[asset] = qty * mids[pair]
 
-    # For first-time runs the mids dict only has entries for assets we already
-    # hold; populate it for the target pairs too, defaulting to 1 if unknown.
+    # Populate mids for any target pair we don't already hold a position in.
+    # The previous code defaulted to Decimal("1") here, which downstream made
+    # `qty = notional_aud / mid` collapse to `qty = notional_aud` — i.e. AUD
+    # notionals were silently submitted as base-asset quantities. Observed
+    # 2026-05-14 first DCA fire: tried "500 ETH" / "250 SOL" / "150 LINK"
+    # which all rejected (BOOK_UNAVAILABLE), plus "100 ADA" which happened to
+    # fit the book and filled at AUD 38 instead of AUD 100.
+    #
+    # Prefer the live order book (executor._books), fall back to Kraken's
+    # public Ticker REST endpoint, and abort the rebalance entirely if a
+    # price still can't be obtained — better to miss a fortnightly fire than
+    # emit garbage-sized orders.
     for pair in cfg.allocations:
-        mids.setdefault(pair, Decimal("1"))
+        if pair in mids:
+            continue
+        book = (_current_executor._books.get(pair)
+                if _current_executor is not None
+                and hasattr(_current_executor, "_books")
+                else None)
+        if book is not None and book.bids and book.asks:
+            mids[pair] = book.mid()
+
+    missing = [p for p in cfg.allocations if p not in mids]
+    if missing:
+        try:
+            from backend.services.trading.min_order import fetch_last_prices
+            prices = fetch_last_prices(missing)
+            for p, v in prices.items():
+                mids[p] = v
+        except Exception:
+            logger.exception(
+                "Deterministic %s: Kraken REST price fallback failed",
+                strategy.name,
+            )
+        missing = [p for p in cfg.allocations if p not in mids]
+        if missing:
+            logger.warning(
+                "Deterministic %s: cannot price %s — skipping rebalance",
+                strategy.name, ",".join(missing),
+            )
+            return
 
     target_orders = compute_rebalance_orders(
         positions_aud=positions_aud,
