@@ -103,8 +103,21 @@ async def _boot_trading_sandbox(app: FastAPI, tools) -> None:
             "[Startup] Trading sandbox booted: %d strategy loops, %d pairs",
             len(loop_tasks), len(pairs),
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("[Startup] Trading sandbox boot failed")
+        # Surface the failure as a system_alert so the operator sees it on
+        # the dashboard rather than only in Railway logs. Best-effort — if
+        # the alert insert itself fails, the logger.exception above is the
+        # remaining record.
+        try:
+            from backend.repositories import system_alerts_repo as alerts
+            alerts.insert(
+                level="error", code="SANDBOX_BOOT_FAILED", strategy_id=None,
+                message=f"Trading sandbox boot failed: {exc!r}",
+                payload={"exception": str(exc)},
+            )
+        except Exception:
+            logger.exception("Failed to insert SANDBOX_BOOT_FAILED alert")
 
 
 @asynccontextmanager

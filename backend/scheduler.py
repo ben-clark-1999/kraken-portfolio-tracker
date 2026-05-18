@@ -10,28 +10,59 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
+def _emit_job_alert(*, code: str, message: str, payload: dict | None = None) -> None:
+    """Surface a scheduled-job failure as a system_alert.
+
+    Best-effort: if the alert insert itself fails we just log — the
+    exception that triggered this is already in the log.
+    """
+    try:
+        from backend.repositories import system_alerts_repo as alerts
+        alerts.insert(
+            level="warning", code=code, strategy_id=None,
+            message=message, payload=payload or {},
+        )
+    except Exception:
+        logger.exception("Failed to insert system_alert for %s", code)
+
+
 def _do_snapshot() -> None:
     """Synchronous snapshot composition for both crypto and UP."""
     summary = portfolio_service.build_summary()
     snapshot_service.save_snapshot(summary)
     try:
         up_snapshot_service.save_snapshot()
-    except Exception:
+    except Exception as exc:
         logger.exception("UP snapshot failed (crypto snapshot was saved)")
+        _emit_job_alert(
+            code="UP_SNAPSHOT_FAILED",
+            message=f"UP snapshot failed: {exc!r}",
+            payload={"exception": str(exc)},
+        )
 
 
 async def _hourly_snapshot() -> None:
     try:
         await asyncio.to_thread(_do_snapshot)
-    except Exception:
+    except Exception as exc:
         logger.exception("Hourly snapshot failed")
+        _emit_job_alert(
+            code="HOURLY_SNAPSHOT_FAILED",
+            message=f"Hourly snapshot failed: {exc!r}",
+            payload={"exception": str(exc)},
+        )
 
 
 async def _up_sync_tick() -> None:
     try:
         await up_sync_service.sync()
-    except Exception:
+    except Exception as exc:
         logger.exception("UP sync tick failed")
+        _emit_job_alert(
+            code="UP_SYNC_FAILED",
+            message=f"UP sync tick failed: {exc!r}",
+            payload={"exception": str(exc)},
+        )
 
 
 def start_scheduler() -> None:

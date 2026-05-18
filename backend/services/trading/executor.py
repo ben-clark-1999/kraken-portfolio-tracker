@@ -247,13 +247,20 @@ class PaperExecutor:
         book = self._books.get(pair)
         if book is None:
             return
+        now = datetime.now(timezone.utc)
+        # Don't reconcile against a stale book — during a WS disconnect the
+        # local book still has levels from the last update, but those prices
+        # may no longer reflect the real Kraken book. Skip this tick; the
+        # next reconcile after the feed recovers will pick the orders up.
+        # 5s threshold matches the executor's market-order freshness check.
+        if not book.ts or book.age_seconds(now) > 5:
+            return
         sb = get_supabase()
         rows = (sb.schema(self._schema).table("paper_orders").select("*")
                   .eq("pair", pair)
                   .in_("status", ["pending", "partial"])
                   .eq("type", "limit")
                   .execute().data or [])
-        now = datetime.now(timezone.utc)
         for r in rows:
             limit_price = Decimal(r["limit_price"])
             side = r["side"]

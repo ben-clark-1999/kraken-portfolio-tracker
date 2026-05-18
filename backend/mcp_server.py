@@ -445,14 +445,27 @@ def get_my_recent_decisions(strategy_id: str, n: int = 3) -> list[dict]:
 
 @mcp.tool()
 def get_market_snapshot(pairs: list[str] | None = None) -> dict:
-    """Returns top-of-book per pair from the live LocalOrderBooks."""
+    """Returns top-of-book per pair from the live LocalOrderBooks.
+
+    Returns BOOK_UNAVAILABLE when the book is missing, empty, or stale
+    (last tick > 5 seconds ago). The staleness check matches the
+    executor's market-order freshness check — without it, the LLM would
+    decide on snapshot data that's minutes old during a WS disconnect.
+    """
+    from datetime import datetime, timezone
     executor = _current_paper_executor()
     out: dict[str, dict] = {}
     pairs = pairs or list((executor._books if executor else {}).keys())
+    now = datetime.now(timezone.utc)
     for p in pairs:
         book = executor._books.get(p) if executor else None
         if book is None or not book.asks or not book.bids:
             out[p] = {"error": "BOOK_UNAVAILABLE"}
+            continue
+        age = book.age_seconds(now) if book.ts else float("inf")
+        if age > 5:
+            out[p] = {"error": "BOOK_UNAVAILABLE",
+                      "reason": "stale", "age_s": round(age, 1)}
             continue
         out[p] = {
             "top_ask": {"price": str(book.top_ask().price),
