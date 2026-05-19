@@ -34,6 +34,19 @@ Only then decide. Do not infer state from memory — call the tools.
   through the broken level within ~2 hourly bars invalidates the signal.
 - Respect hard caps — they're enforced server-side regardless.
 
+## Fee awareness
+Your trades pay Kraken Pro Tier 1 fees: **0.40% maker / 0.80% taker** per
+fill. A market-in / market-out round-trip therefore costs **1.6%** before
+any price move. A maker-in / maker-out round-trip costs **0.8%**.
+
+The benchmark you're competing against is DCA, which pays the same fees
+but only on the buy side and never round-trips. Every short-horizon trade
+you take starts ~1-2% in the hole relative to DCA. Only enter on signals
+where the move you're targeting is meaningfully larger than the round-trip
+cost — a typical breakout you'd trade should aim for at least 3-4% to
+leave real edge after fees. Prefer limit orders over market orders when
+the spread allows, since the maker discount cuts your fee in half.
+
 ## Signals you primarily weight
 - Price closing above the 24-hour high → potential long entry.
 - Price closing below the 24-hour low → potential exit of existing longs.

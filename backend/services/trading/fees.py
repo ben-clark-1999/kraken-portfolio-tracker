@@ -1,7 +1,15 @@
 """Fee schedule and per-fill fee calculation.
 
 See spec §5.4. Lowest 30-day USD volume tier on Kraken Pro spot:
-0.25% maker / 0.40% taker.
+0.40% maker / 0.80% taker (verified against kraken.com/features/fee-schedule
+2026-05-19).
+
+These numbers materially affect strategy attribution — the whole point of
+running paper-trading is to compare alternative methods against DCA, and an
+under-stated fee schedule biases the result in favour of churn-heavy
+strategies. Round-trip taker is 1.6%, which eats most of a typical
+mean-reversion edge; the personas reference these numbers so the LLM can
+weigh trade EV honestly.
 """
 from __future__ import annotations
 
@@ -16,8 +24,7 @@ class FeeSchedule:
     taker_bps: int
 
 
-# Spec decision-log row 13 — verified against kraken.com/features/fee-schedule.
-KRAKEN_PRO_SPOT_TIER_1 = FeeSchedule(maker_bps=25, taker_bps=40)
+KRAKEN_PRO_SPOT_TIER_1 = FeeSchedule(maker_bps=40, taker_bps=80)
 
 
 def apply_fee(

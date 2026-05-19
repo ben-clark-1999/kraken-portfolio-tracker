@@ -6,22 +6,24 @@ from backend.services.trading.fees import (
 
 
 def test_default_schedule_is_lowest_kraken_tier():
-    # Spec decision-log row 13: 0.25% maker / 0.40% taker
-    assert KRAKEN_PRO_SPOT_TIER_1.maker_bps == 25
-    assert KRAKEN_PRO_SPOT_TIER_1.taker_bps == 40
+    # kraken.com/features/fee-schedule, Tier 1 (<$50k 30-day volume):
+    # 0.40% maker / 0.80% taker.
+    assert KRAKEN_PRO_SPOT_TIER_1.maker_bps == 40
+    assert KRAKEN_PRO_SPOT_TIER_1.taker_bps == 80
 
 
-def test_apply_fee_taker_on_aud_50_at_0_40pct():
-    # qty=1, price=50 → notional 50; 0.40% of 50 = 0.20
+def test_apply_fee_taker_on_aud_50_at_0_80pct():
+    # qty=1, price=50 → notional 50; 0.80% of 50 = 0.40
     fee = apply_fee(qty=Decimal("1"), price=Decimal("50"),
                     role="taker", schedule=KRAKEN_PRO_SPOT_TIER_1)
-    assert fee == Decimal("0.20")
+    assert fee == Decimal("0.40")
 
 
-def test_apply_fee_maker_on_aud_50_at_0_25pct():
+def test_apply_fee_maker_on_aud_50_at_0_40pct():
+    # qty=1, price=50 → notional 50; 0.40% of 50 = 0.20
     fee = apply_fee(qty=Decimal("1"), price=Decimal("50"),
                     role="maker", schedule=KRAKEN_PRO_SPOT_TIER_1)
-    assert fee == Decimal("0.125")
+    assert fee == Decimal("0.20")
 
 
 def test_apply_fee_zero_qty_zero_fee():
