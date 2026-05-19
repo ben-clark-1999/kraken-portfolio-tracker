@@ -47,7 +47,6 @@ def mark_notified(decision_id: str, schema: str = "public") -> bool:
     update changed a row (i.e. this is the first notify), False if the
     decision was already notified.
     """
-    from datetime import datetime, timezone
     sb = get_supabase()
     r = (sb.schema(schema).table("agent_decisions")
            .update({"notified_at": datetime.now(timezone.utc).isoformat()})
