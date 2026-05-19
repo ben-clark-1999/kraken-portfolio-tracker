@@ -160,3 +160,68 @@ def test_mark_notified_is_idempotent_when_already_set():
     second = (sb.schema(SCHEMA).table("agent_decisions")
                 .select("notified_at").eq("id", decision_id).execute().data[0]["notified_at"])
     assert first == second
+
+
+@pytest.mark.asyncio
+async def test_write_agent_decision_invokes_notify_when_enabled():
+    import httpx, respx
+    from backend.db.supabase_client import get_supabase as _gs
+    sid = _seed_dca_strategy()
+    _gs().schema(SCHEMA).table("strategies").update(
+        {"notify_enabled": True}
+    ).eq("id", sid).execute()
+
+    with respx.mock(base_url="https://ntfy.sh", assert_all_called=False,
+                    assert_all_mocked=False) as router:
+        router.route(host__regex=r".*supabase.*").pass_through()
+        route = router.post("/wire-topic").mock(return_value=httpx.Response(200))
+        write_agent_decision(
+            strategy_id=sid, execution_mode="llm_agent",
+            trigger_event={"type": "cron", "expr": "0 9 * * *"},
+            input_snapshot={}, persona_prompt_hash=None,
+            model="claude-haiku-4-5",
+            input_tokens=0, output_tokens=0, cost_aud=Decimal("0"),
+            tool_calls=[{"tool": "place_paper_order",
+                         "args": {"pair": "ETH/AUD", "side": "buy",
+                                  "notional_aud": "100"}}],
+            agent_output="<confidence>medium</confidence>",
+            latency_ms=1, error=None, schema=SCHEMA,
+            _notify_overrides={
+                "ntfy_topic": "wire-topic",
+                "ntfy_url_base": "https://ntfy.sh",
+                "frontend_url": "https://app.example.com",
+            },
+        )
+        # Notification fanout is async fire-and-forget; allow loop to drain.
+        import asyncio
+        await asyncio.sleep(0.05)
+        assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_write_agent_decision_does_not_notify_when_disabled():
+    import httpx, respx
+    sid = _seed_dca_strategy()
+    # notify_enabled defaults to False — leave it alone.
+    with respx.mock(base_url="https://ntfy.sh", assert_all_called=False,
+                    assert_all_mocked=False) as router:
+        router.route(host__regex=r".*supabase.*").pass_through()
+        route = router.post("/wire-topic").mock(return_value=httpx.Response(200))
+        write_agent_decision(
+            strategy_id=sid, execution_mode="llm_agent",
+            trigger_event={"type": "cron", "expr": "0 9 * * *"},
+            input_snapshot={}, persona_prompt_hash=None,
+            model="claude-haiku-4-5",
+            input_tokens=0, output_tokens=0, cost_aud=Decimal("0"),
+            tool_calls=[{"tool": "place_paper_order",
+                         "args": {"pair": "ETH/AUD", "side": "buy",
+                                  "notional_aud": "100"}}],
+            agent_output="<confidence>medium</confidence>",
+            latency_ms=1, error=None, schema=SCHEMA,
+            _notify_overrides={"ntfy_topic": "wire-topic",
+                               "ntfy_url_base": "https://ntfy.sh",
+                               "frontend_url": ""},
+        )
+        import asyncio
+        await asyncio.sleep(0.05)
+        assert route.call_count == 0
