@@ -40,3 +40,18 @@ def list_recent(strategy_id: UUID, n: int = 5, schema: str = "public") -> list[d
            .eq("strategy_id", str(strategy_id))
            .order("created_at", desc=True).limit(n).execute())
     return r.data or []
+
+
+def mark_notified(decision_id: str, schema: str = "public") -> bool:
+    """Set notified_at = now() iff currently NULL. Returns True if the
+    update changed a row (i.e. this is the first notify), False if the
+    decision was already notified.
+    """
+    from datetime import datetime, timezone
+    sb = get_supabase()
+    r = (sb.schema(schema).table("agent_decisions")
+           .update({"notified_at": datetime.now(timezone.utc).isoformat()})
+           .eq("id", decision_id)
+           .is_("notified_at", "null")
+           .execute())
+    return bool(r.data)

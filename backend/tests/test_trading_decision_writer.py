@@ -118,3 +118,45 @@ def test_strategy_row_loads_notify_enabled_when_true():
     ).eq("id", sid).execute()
     strat = strategies_repo.get(sid, schema=SCHEMA)
     assert strat.notify_enabled is True
+
+
+def test_mark_notified_sets_timestamp_when_null():
+    from backend.repositories import agent_decisions_repo
+    sb = get_supabase()
+    sid = _seed_dca_strategy()
+    decision_id = write_agent_decision(
+        strategy_id=sid, execution_mode="deterministic",
+        trigger_event={"type": "cron", "expr": "0 9 * * *"},
+        input_snapshot={}, persona_prompt_hash=None, model=None,
+        input_tokens=0, output_tokens=0, cost_aud=Decimal("0"),
+        tool_calls=[], agent_output=None, latency_ms=1, error=None,
+        schema=SCHEMA,
+    )
+
+    result = agent_decisions_repo.mark_notified(decision_id, schema=SCHEMA)
+    assert result is True
+    row = (sb.schema(SCHEMA).table("agent_decisions")
+             .select("notified_at").eq("id", decision_id).execute().data[0])
+    assert row["notified_at"] is not None
+
+
+def test_mark_notified_is_idempotent_when_already_set():
+    from backend.repositories import agent_decisions_repo
+    sb = get_supabase()
+    sid = _seed_dca_strategy()
+    decision_id = write_agent_decision(
+        strategy_id=sid, execution_mode="deterministic",
+        trigger_event={"type": "cron", "expr": "0 9 * * *"},
+        input_snapshot={}, persona_prompt_hash=None, model=None,
+        input_tokens=0, output_tokens=0, cost_aud=Decimal("0"),
+        tool_calls=[], agent_output=None, latency_ms=1, error=None,
+        schema=SCHEMA,
+    )
+    assert agent_decisions_repo.mark_notified(decision_id, schema=SCHEMA) is True
+    first = (sb.schema(SCHEMA).table("agent_decisions")
+               .select("notified_at").eq("id", decision_id).execute().data[0]["notified_at"])
+    # Second call: no-op, returns False.
+    assert agent_decisions_repo.mark_notified(decision_id, schema=SCHEMA) is False
+    second = (sb.schema(SCHEMA).table("agent_decisions")
+                .select("notified_at").eq("id", decision_id).execute().data[0]["notified_at"])
+    assert first == second
