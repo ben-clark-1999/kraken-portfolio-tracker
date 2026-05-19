@@ -73,3 +73,42 @@ Answer quality:    70/86 dimensions (81%)  ▲ baseline 76%
 `backend/evals/results/`). First run shows no deltas.
 
 See `docs/eval-baseline.md` for the canonical first baseline.
+
+## Phone push notifications
+
+The backend optionally pushes a phone notification each time a strategy with `notify_enabled = true` emits a buy/sell decision. Delivery uses the free ntfy.sh public broker — no account, no per-notification cost.
+
+### Setup
+
+1. Install the official ntfy app (search "ntfy" on the iOS App Store or Google Play; icon is a yellow speech bubble).
+2. Generate a topic name:
+   ```bash
+   backend/.venv/bin/python -c "import secrets; print(secrets.token_urlsafe(24))"
+   ```
+3. On Railway, set three env vars:
+   - `NTFY_TOPIC` — the value from step 2.
+   - `NTFY_URL_BASE` — leave as `https://ntfy.sh` unless self-hosting.
+   - `FRONTEND_URL` — your deployed frontend origin (used for the tap-through link).
+4. In the ntfy app, tap **+ → Subscribe to topic**, paste the same topic name, leave the server as default.
+
+### Enabling a strategy
+
+Notifications are off by default for every strategy. To enable one (via the Supabase SQL editor):
+
+```sql
+UPDATE strategies
+   SET notify_enabled = true
+ WHERE name = '<your strategy name>';
+```
+
+Switch back off the same way (`= false`). Only one strategy at a time is supported by design — flip the previous one off first.
+
+### What's in the notification
+
+For a single-leg decision: `BUY ETH/AUD — <strategy name>` with notional, mid price, allocation-after-trade, and (for LLM strategies) the confidence tag.
+
+For a multi-leg decision (e.g. DCA rebalance): one notification listing up to four legs, with a `… +N more` indicator if a rebalance ever exceeds four. The notification is informational; you act on it manually on Kraken.
+
+### Security note
+
+The topic name is the only auth on ntfy — anyone who knows it can read or write. Don't share the value, don't commit it, and treat it like an API token. The notification body deliberately omits balances and total portfolio value; leak ceiling is "Ben's bot is interested in ETH right now."
