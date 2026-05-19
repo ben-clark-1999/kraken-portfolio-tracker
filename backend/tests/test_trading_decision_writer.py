@@ -100,3 +100,21 @@ async def test_invoke_deterministic_strategy_emits_orders_and_decision_row():
     rows = (sb.schema(SCHEMA).table("agent_decisions").select("*")
               .eq("strategy_id", sid).execute().data or [])
     assert any(r["execution_mode"] == "deterministic" for r in rows)
+
+
+def test_strategy_row_loads_notify_enabled_default_false():
+    from backend.repositories import strategies_repo
+    sid = _seed_dca_strategy()
+    strat = strategies_repo.get(sid, schema=SCHEMA)
+    assert strat.notify_enabled is False
+
+
+def test_strategy_row_loads_notify_enabled_when_true():
+    from backend.repositories import strategies_repo
+    sid = _seed_dca_strategy()
+    db = get_supabase()
+    db.schema(SCHEMA).table("strategies").update(
+        {"notify_enabled": True}
+    ).eq("id", sid).execute()
+    strat = strategies_repo.get(sid, schema=SCHEMA)
+    assert strat.notify_enabled is True

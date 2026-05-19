@@ -190,6 +190,7 @@ class StrategyRow(BaseModel):
     model_preference: str | None = None
     status: Literal["active", "paused", "archived"] = "active"
     dry_run: bool = False
+    notify_enabled: bool = False
     persona_prompt_stable_since: datetime | None = None
     created_at: datetime
     updated_at: datetime
