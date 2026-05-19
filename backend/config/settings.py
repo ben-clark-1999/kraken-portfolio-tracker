@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     jwt_secret: str
     kraken_live_tests: bool = False
     up_pat: str
+    ntfy_topic: str = ""
+    ntfy_url_base: str = "https://ntfy.sh"
+    frontend_url: str = ""
 
     model_config = {"env_file": str(_ENV_FILE), "env_file_encoding": "utf-8"}
 
