@@ -40,10 +40,23 @@ def list_strategies() -> list[dict]:
 
 @router.get("/_leaderboard")
 def leaderboard() -> list[dict]:
+    from backend.services.manual_cash_flow_scanner import ensure_cash_flows_fresh
+    from backend.services.trading import metrics
+
     sb = get_supabase()
     strats = (sb.schema(SCHEMA).table("strategies").select("*")
                 .neq("status", "archived").execute().data or [])
     thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+
+    # Window start = earliest active strategy's created_at. Falls back to
+    # 30 days ago if no strategies exist.
+    window_start_dt = (
+        min(datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))
+            for s in strats)
+        if strats
+        else datetime.now(timezone.utc) - timedelta(days=30)
+    )
+
     out: list[dict] = []
     for s in strats:
         sid = UUID(s["id"])
@@ -86,14 +99,140 @@ def leaderboard() -> list[dict]:
             "return_7d_pct": str(_ret_pct(7)),
             "return_30d_pct": str(_ret_pct(30)),
             "return_all_time_pct": str(all_time),
+            "lifetime_return_pct": str(all_time),   # paper: lifetime == all-time
             "sharpe": str(sharpe),
             "max_drawdown_pct": str(max_dd),
             "trades": trades,
             "cost_30d_aud": str(cost_30d),
             "persona_prompt_stable_since": s.get("persona_prompt_stable_since"),
         })
-    out.sort(key=lambda r: Decimal(r["equity_aud"]), reverse=True)
+
+    # ── Manual row ──────────────────────────────────────────────────
+    try:
+        ensure_cash_flows_fresh(schema=SCHEMA)
+        manual_row = _compute_manual_row(
+            window_start_dt=window_start_dt, schema=SCHEMA,
+        )
+        if manual_row is not None:
+            out.append(manual_row)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "Manual leaderboard row computation failed; rendering without it"
+        )
+
+    out.sort(
+        key=lambda r: Decimal(r.get("return_all_time_pct") or "0"),
+        reverse=True,
+    )
     return out
+
+
+def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
+    """Build the Manual leaderboard row from portfolio_snapshots + cash flows.
+
+    Returns None if there's no portfolio data to summarise.
+    """
+    from backend.services.manual_performance import (
+        CashFlowEvent, EquityPoint, compute_twr,
+    )
+    from backend.repositories import manual_cash_flows_repo, snapshots_repo
+    from backend.services.trading import metrics
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    snaps = snapshots_repo.get_all(
+        from_dt=window_start_dt.isoformat(), schema=schema,
+    )
+    if not snaps:
+        return None
+
+    flows = manual_cash_flows_repo.list_since(
+        since=window_start_dt, schema=schema,
+    )
+
+    def _to_dt(value) -> _dt:
+        if isinstance(value, str):
+            return _dt.fromisoformat(value.replace("Z", "+00:00"))
+        return value
+
+    equity_points = [
+        EquityPoint(
+            captured_at=_to_dt(s.captured_at),
+            total_value_aud=Decimal(str(s.total_value_aud)),
+        )
+        for s in snaps
+    ]
+
+    cash_flows = [
+        CashFlowEvent(
+            occurred_at=_to_dt(f["occurred_at"]),
+            amount_aud=Decimal(str(f["amount_aud"])),
+            kind=f["kind"],
+        )
+        for f in flows
+    ]
+
+    twr_pct, unit_curve = compute_twr(equity_points, cash_flows)
+    sharpe = metrics.sharpe_24_7(unit_curve)
+    max_dd = metrics.max_drawdown_pct(unit_curve)
+
+    def _windowed(days: int) -> Decimal:
+        cutoff = _dt.now(_tz.utc) - _td(days=days)
+        window_snaps = [p for p in equity_points if p.captured_at >= cutoff]
+        window_flows = [c for c in cash_flows if c.occurred_at >= cutoff]
+        if len(window_snaps) < 2:
+            return Decimal("0")
+        twr_w, _ = compute_twr(window_snaps, window_flows)
+        return twr_w
+
+    all_snaps = snapshots_repo.get_all(schema=schema)
+    all_equity = [
+        EquityPoint(
+            captured_at=_to_dt(s.captured_at),
+            total_value_aud=Decimal(str(s.total_value_aud)),
+        )
+        for s in all_snaps
+    ]
+    all_flows_raw = manual_cash_flows_repo.list_since(
+        since=_dt(1970, 1, 1, tzinfo=_tz.utc), schema=schema,
+    )
+    all_flows = [
+        CashFlowEvent(
+            occurred_at=_to_dt(f["occurred_at"]),
+            amount_aud=Decimal(str(f["amount_aud"])),
+            kind=f["kind"],
+        )
+        for f in all_flows_raw
+    ]
+    lifetime_pct, _ = compute_twr(all_equity, all_flows)
+
+    current_equity = equity_points[-1].total_value_aud
+
+    # Count trades: ledger-derived buy trades within the window.
+    from backend.services import kraken_service as _ks
+    try:
+        trades_all = _ks.get_trade_history()
+        window_start_ts = window_start_dt.timestamp()
+        trade_count = sum(1 for t in trades_all if t["time"] >= window_start_ts)
+    except Exception:
+        trade_count = 0
+
+    return {
+        "id": "manual",
+        "name": "Manual",
+        "status": "active",
+        "execution_mode": "manual",
+        "equity_aud": str(current_equity),
+        "return_7d_pct": str(_windowed(7)),
+        "return_30d_pct": str(_windowed(30)),
+        "return_all_time_pct": str(twr_pct),
+        "lifetime_return_pct": str(lifetime_pct),
+        "sharpe": str(sharpe),
+        "max_drawdown_pct": str(max_dd),
+        "trades": trade_count,
+        "cost_30d_aud": "0",
+        "persona_prompt_stable_since": None,
+    }
 
 
 @router.get("/_health")
