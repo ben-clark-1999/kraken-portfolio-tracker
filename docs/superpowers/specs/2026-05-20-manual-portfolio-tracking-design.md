@@ -46,6 +46,7 @@ The Manual row is computed on demand from existing `portfolio_snapshots` data pl
 | UI placement | **4th row in the existing strategies leaderboard.** Same columns + new "Lifetime" column. |
 | Lifetime return display | **Yes**, as a secondary column on every row. Bots use their `return_all_time_pct`; Manual uses TWR over full Kraken history. |
 | Visual treatment | **Subtle left-border or background tint** on the Manual row so it stands out. |
+| Leaderboard sort | **`return_all_time_pct` desc** (changed from the existing `equity_aud` desc, which made sense when every strategy started at AUD 1000 but biases toward the larger-capital Manual entry). |
 
 ## Architecture
 
@@ -209,11 +210,7 @@ Existing endpoint: `GET /api/strategies/_leaderboard` in `backend/routers/strate
 
    Then the existing `out.sort(key=lambda r: Decimal(r["equity_aud"]), reverse=True)` sorts it alongside everything else.
 
-   Note: the `equity_aud` sort isn't ideal for cross-comparison (Manual will likely have far more equity than a paper strategy starting at AUD 1000). Two options:
-   - **Keep `equity_aud` sort.** Manual lands at the top by sheer scale; visually noisy.
-   - **Sort by `return_all_time_pct` instead.** Apples-to-apples and that's actually what the user wants to compare.
-
-   Recommend: **switch the sort to `return_all_time_pct`** as part of this change. Aligns with the thesis ("who returned the most?"), not "who has the most capital."
+   **Change the sort key** from `equity_aud` desc to `return_all_time_pct` desc. The old sort made sense when every strategy started at AUD 1000, but biases toward the larger-capital Manual entry once it joins the table. Sorting by all-time return matches the thesis ("who returned the most?") rather than "who has the most capital."
 
 **Response shape unchanged otherwise.** Each row still has `id`, `name`, `status`, `execution_mode`, `equity_aud`, `return_7d_pct`, `return_30d_pct`, `return_all_time_pct`, `sharpe`, `max_drawdown_pct`, `trades`, `cost_30d_aud`, `persona_prompt_stable_since`, plus the new `lifetime_return_pct`.
 
@@ -308,10 +305,6 @@ def ensure_cash_flows_fresh(*, schema: str = "public") -> None:
 | `backend/tests/test_manual_debounce.py` (unit) | Calling `ensure_cash_flows_fresh()` twice within 5 minutes makes exactly one Kraken API call. |
 
 No new eval-suite changes — these are deterministic metrics, not LLM behavior.
-
-## Open question for review
-
-**Sort order on the leaderboard.** Today it sorts by `equity_aud` desc, which made sense when every entry started at AUD 1000. With Manual in the mix, that sort puts Manual at the top regardless of skill (because the real portfolio holds more). Switching to `return_all_time_pct` desc is more useful — it directly answers "who returned the most?" — but it's a behavior change for existing users. Flagging this for explicit user approval before the implementation plan.
 
 ## Future work (named, not in scope)
 
