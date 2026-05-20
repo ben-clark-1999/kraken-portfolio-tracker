@@ -33,6 +33,7 @@ export interface LeaderboardRow {
   return_7d_pct: string
   return_30d_pct: string
   return_all_time_pct: string
+  lifetime_return_pct: string
   sharpe: string
   max_drawdown_pct: string
   trades: number

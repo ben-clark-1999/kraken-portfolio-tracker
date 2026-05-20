@@ -17,6 +17,10 @@ const EMPTY_BENCHMARKS: EquityCurveResponse['benchmarks'] = {
   alt_basket_equal_weight: [],
 }
 
+// Comparison window opens 2026-05-12; banner stays visible for four weeks
+// (until 2026-06-12) while the rolling window is too short to be meaningful.
+const SHORT_WINDOW_CUTOFF = new Date('2026-06-12T00:00:00')
+
 export default function StrategiesPage() {
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -116,6 +120,7 @@ export default function StrategiesPage() {
               >
                 Leaderboard
               </SectionHeader>
+              <ShortWindowCaveat />
               <LeaderboardTable rows={rows} onRowClick={setSelectedId} />
             </section>
 
@@ -146,6 +151,28 @@ export default function StrategiesPage() {
         onStateChanged={loadLeaderboard}
       />
     </main>
+  )
+}
+
+function ShortWindowCaveat() {
+  if (new Date() >= SHORT_WINDOW_CUTOFF) return null
+  return (
+    <div
+      role="note"
+      className="mb-4 rounded-md border border-surface-border/60 bg-surface-raised/40 px-4 py-3"
+    >
+      <p className="flex items-start gap-2.5 text-sm leading-relaxed text-txt-secondary">
+        <span
+          aria-hidden="true"
+          className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-kraken-light/70"
+        />
+        <span>
+          Comparisons are noisy until the window includes several weeks of
+          varied market conditions. Treat numbers cautiously through mid-June
+          2026.
+        </span>
+      </p>
+    </div>
   )
 }
 
