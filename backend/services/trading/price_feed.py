@@ -97,9 +97,26 @@ class PriceFeed:
         self.executor = executor
         self.books: dict[str, LocalOrderBook] = {p: LocalOrderBook(p) for p in pairs}
         self._drift_last_logged: dict[str, float] = {}
+        # Updated on every WS message (book diff, trade, heartbeat). Lets
+        # the executor distinguish "WS is alive" from "this pair hasn't
+        # ticked recently" — Kraken's book channel only diffs on change,
+        # so low-volume pairs can be quiet for tens of seconds while the
+        # connection is perfectly healthy.
+        self.last_message_at: datetime | None = None
         if self.executor is not None:
             for p, b in self.books.items():
                 self.executor.attach_book(p, b)
+            if hasattr(self.executor, "attach_feed"):
+                self.executor.attach_feed(self)
+
+    def is_ws_healthy(self, now: datetime, max_age_s: float = 10.0) -> bool:
+        """Return True if a Kraken WS message has been received in the last
+        `max_age_s` seconds. Kraken's heartbeat channel sends a tick every
+        second when connected, so anything older than ~10s is a disconnect.
+        """
+        if self.last_message_at is None:
+            return False
+        return (now - self.last_message_at).total_seconds() <= max_age_s
 
     async def run(self) -> None:
         backoff = 1
@@ -116,6 +133,13 @@ class PriceFeed:
                         "method": "subscribe",
                         "params": {"channel": "trade", "symbol": self.pairs},
                     }))
+                    # Heartbeat = 1Hz keepalive when WS is connected. Lets us
+                    # detect a disconnect within seconds even when low-volume
+                    # pairs have no book/trade activity.
+                    await ws.send(json.dumps({
+                        "method": "subscribe",
+                        "params": {"channel": "heartbeat"},
+                    }))
                     backoff = 1
                     async for raw in ws:
                         await self._handle(json.loads(raw))
@@ -125,7 +149,12 @@ class PriceFeed:
                 backoff = min(backoff * 2, 60)
 
     async def _handle(self, msg: dict) -> None:
+        # Refresh the WS-health timestamp on every inbound message so the
+        # executor can distinguish a dead connection from a quiet pair.
+        self.last_message_at = datetime.now(timezone.utc)
         ch = msg.get("channel")
+        if ch == "heartbeat":
+            return
         if ch == "book":
             kind = msg.get("type")
             data = msg.get("data", [])

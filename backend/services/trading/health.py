@@ -21,6 +21,13 @@ def build_health_payload(schema: str = "public") -> dict:
     last_fill_at = None
     db_error: str | None = None
 
+    feed = getattr(executor, "_feed", None) if executor is not None else None
+    ws_healthy: bool | None = None
+    ws_last_message_age_s: float | None = None
+    if feed is not None and getattr(feed, "last_message_at", None) is not None:
+        ws_last_message_age_s = (now - feed.last_message_at).total_seconds()
+        ws_healthy = feed.is_ws_healthy(now)
+
     if executor is not None:
         for pair, book in (getattr(executor, "_books", {}) or {}).items():
             age = book.age_seconds(now) if book.ts else None
@@ -51,6 +58,10 @@ def build_health_payload(schema: str = "public") -> dict:
 
     return {
         "ws_feed": ws_feed,
+        "ws_connection": {
+            "healthy": ws_healthy,
+            "last_message_age_s": ws_last_message_age_s,
+        },
         "strategies": strategies,
         "executor": {
             "last_fill_at": last_fill_at,

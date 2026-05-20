@@ -1,8 +1,12 @@
-from datetime import datetime, timezone
+import asyncio
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
+
+from backend.services.trading.event_bus import EventBus
 from backend.services.trading.price_feed import (
-    parse_book_snapshot_message, parse_book_update_message,
+    PriceFeed, parse_book_snapshot_message, parse_book_update_message,
     parse_trade_message, kraken_pair_to_canonical,
 )
 
@@ -64,3 +68,32 @@ def test_parse_trade_message_extracts_last_price():
     tick = parse_trade_message(msg)
     assert tick.pair == "ETH/AUD"
     assert tick.price == Decimal("3196.6")
+
+
+def test_is_ws_healthy_before_any_message_is_false():
+    feed = PriceFeed(pairs=["ETH/AUD"], bus=EventBus())
+    now = datetime.now(timezone.utc)
+    assert feed.is_ws_healthy(now) is False
+
+
+def test_is_ws_healthy_after_recent_message_is_true():
+    feed = PriceFeed(pairs=["ETH/AUD"], bus=EventBus())
+    now = datetime.now(timezone.utc)
+    feed.last_message_at = now - timedelta(seconds=2)
+    assert feed.is_ws_healthy(now) is True
+
+
+def test_is_ws_healthy_after_stale_message_is_false():
+    feed = PriceFeed(pairs=["ETH/AUD"], bus=EventBus())
+    now = datetime.now(timezone.utc)
+    feed.last_message_at = now - timedelta(seconds=15)
+    assert feed.is_ws_healthy(now) is False
+
+
+def test_heartbeat_message_refreshes_health_without_affecting_books():
+    feed = PriceFeed(pairs=["ETH/AUD"], bus=EventBus())
+    assert feed.last_message_at is None
+    asyncio.run(feed._handle({"channel": "heartbeat"}))
+    assert feed.last_message_at is not None
+    # The heartbeat path must not touch the per-pair book.
+    assert feed.books["ETH/AUD"].ts is None

@@ -144,6 +144,59 @@ async def test_market_rejected_when_book_stale():
 
 
 @pytest.mark.asyncio
+async def test_market_accepts_quiet_pair_when_ws_feed_is_healthy():
+    """A pair with no recent trading still has a valid book — Kraken's
+    `book` channel only diffs on change, so a quiet pair has an old
+    book.ts even when the WS connection is alive. With a healthy feed
+    attached, the executor must NOT reject these orders.
+    """
+    from datetime import timedelta
+    sid = _seed_strategy()
+    pe = PaperExecutor(schema=SCHEMA)
+    # Book hasn't ticked in 90s (quiet pair) but is otherwise populated.
+    quiet_book = LocalOrderBook("ETH/AUD")
+    quiet_book.apply_snapshot(
+        asks=[OrderBookLevel(price=Decimal("3000"), qty=Decimal("0.05"))],
+        bids=[OrderBookLevel(price=Decimal("2999"), qty=Decimal("1"))],
+        checksum="snap-quiet",
+        ts=datetime.now(timezone.utc) - timedelta(seconds=90),
+    )
+    pe.attach_book("ETH/AUD", quiet_book)
+    # Healthy feed: heartbeat seen 1s ago. Use a minimal stand-in instead
+    # of constructing a full PriceFeed.
+    class _FakeFeed:
+        def is_ws_healthy(self, now, max_age_s=10.0):
+            return True
+    pe.attach_feed(_FakeFeed())
+    res = await pe.submit_order(
+        strategy_id=sid, idempotency_key=f"{sid}:tquiet:0",
+        pair="ETH/AUD", side="buy", type="market",
+        qty=Decimal("0.01"),
+    )
+    assert res.status == "filled", f"expected fill, got {res.reject_reason!r}"
+
+
+@pytest.mark.asyncio
+async def test_market_rejects_when_ws_feed_reports_disconnected():
+    """Healthy book but a disconnected WS feed must reject — we can't
+    trust stale book data once Kraken stops streaming.
+    """
+    sid = _seed_strategy()
+    pe = _executor()
+    class _DeadFeed:
+        def is_ws_healthy(self, now, max_age_s=10.0):
+            return False
+    pe.attach_feed(_DeadFeed())
+    res = await pe.submit_order(
+        strategy_id=sid, idempotency_key=f"{sid}:tdead:0",
+        pair="ETH/AUD", side="buy", type="market",
+        qty=Decimal("0.01"),
+    )
+    assert res.status == "rejected"
+    assert res.reject_reason == "BOOK_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
 async def test_market_idempotency_same_key_returns_cached_result():
     sid = _seed_strategy()
     pe = _executor()

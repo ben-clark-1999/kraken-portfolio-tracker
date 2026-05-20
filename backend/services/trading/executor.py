@@ -45,9 +45,39 @@ class PaperExecutor:
         # Populated in Task 16 by the price_feed_task.
         self._books: dict = {}
         self._schema = schema
+        # PriceFeed sets this so the executor can use connection-level
+        # health (heartbeat channel) rather than per-pair book.ts age,
+        # which goes "stale" any time a pair has no recent trading.
+        self._feed = None
 
     def attach_book(self, pair: str, book) -> None:
         self._books[pair] = book
+
+    def attach_feed(self, feed) -> None:
+        self._feed = feed
+
+    def _book_unavailable_reason(self, pair: str, now: datetime) -> str | None:
+        """Return a short reason if the book/feed isn't usable, else None.
+
+        Distinguishes three failure modes:
+        - book missing or never populated
+        - WS connection is dead (no message in 10s; heartbeat ticks 1Hz when alive)
+        - no PriceFeed attached AND book.ts is hours old (test/legacy fallback)
+
+        Returning None means: book has levels AND a healthy connection is
+        producing updates; safe to execute.
+        """
+        book = self._books.get(pair)
+        if book is None or not book.asks or not book.bids:
+            return "no_book"
+        if self._feed is not None:
+            if not self._feed.is_ws_healthy(now, max_age_s=10.0):
+                return "ws_stale"
+        elif book.age_seconds(now) > 300:
+            # No feed attached (tests). Fall back to a generous book.ts
+            # threshold so genuinely-stale fake books still reject.
+            return "book_too_old"
+        return None
 
     async def submit_order(
         self,
@@ -87,9 +117,8 @@ class PaperExecutor:
         caps = strategy.risk_caps
 
         # 2. Book availability.
-        book = self._books.get(pair)
         now = datetime.now(timezone.utc)
-        if book is None or book.age_seconds(now) > 5:
+        if self._book_unavailable_reason(pair, now) is not None:
             order_id = paper_orders_repo.insert_order(
                 strategy_id=strategy_id, idempotency_key=idempotency_key,
                 pair=pair, side=side, type_=type, qty=qty,
@@ -99,6 +128,7 @@ class PaperExecutor:
             )
             return OrderResult(order_id=order_id, status="rejected",
                                fills=[], reject_reason="BOOK_UNAVAILABLE")
+        book = self._books[pair]
 
         # 3. Risk-cap pre-check.
         portfolio_rows = paper_positions_repo.get_all(strategy_id, schema=self._schema)
@@ -244,17 +274,14 @@ class PaperExecutor:
         from backend.services.trading.fees import KRAKEN_PRO_SPOT_TIER_1, apply_fee
         from backend.models.trading import Fill
 
-        book = self._books.get(pair)
-        if book is None:
-            return
         now = datetime.now(timezone.utc)
-        # Don't reconcile against a stale book — during a WS disconnect the
-        # local book still has levels from the last update, but those prices
-        # may no longer reflect the real Kraken book. Skip this tick; the
-        # next reconcile after the feed recovers will pick the orders up.
-        # 5s threshold matches the executor's market-order freshness check.
-        if not book.ts or book.age_seconds(now) > 5:
+        # Skip when the book or feed is unhealthy — during a WS disconnect
+        # the local book still has levels from the last update, but those
+        # prices may no longer reflect the real Kraken book. The next
+        # reconcile tick after the feed recovers picks the orders up.
+        if self._book_unavailable_reason(pair, now) is not None:
             return
+        book = self._books[pair]
         sb = get_supabase()
         rows = (sb.schema(self._schema).table("paper_orders").select("*")
                   .eq("pair", pair)
