@@ -1,4 +1,4 @@
-export type ExecutionMode = 'llm_agent' | 'deterministic'
+export type ExecutionMode = 'llm_agent' | 'deterministic' | 'manual'
 export type StrategyStatus = 'active' | 'paused' | 'archived'
 
 export interface Strategy {

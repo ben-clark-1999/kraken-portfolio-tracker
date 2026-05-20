@@ -1,4 +1,4 @@
-import type { LeaderboardRow } from '../../types/strategies'
+import type { ExecutionMode, LeaderboardRow } from '../../types/strategies'
 
 interface Props {
   rows: LeaderboardRow[]
@@ -85,18 +85,31 @@ function MutedPctCell({ value }: { value: string }) {
   )
 }
 
-function ModeBadge({ mode }: { mode: 'llm_agent' | 'deterministic' }) {
-  const isLlm = mode === 'llm_agent'
+function ModeBadge({ mode }: { mode: ExecutionMode }) {
+  if (mode === 'llm_agent') {
+    return (
+      <span
+        className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide bg-kraken/15 text-kraken-light ring-1 ring-kraken/25"
+      >
+        LLM
+      </span>
+    )
+  }
+  if (mode === 'manual') {
+    return (
+      <span
+        className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide bg-surface-border/60 text-txt-secondary ring-1 ring-surface-border"
+      >
+        MANUAL
+      </span>
+    )
+  }
+  // deterministic
   return (
     <span
-      className={[
-        'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide',
-        isLlm
-          ? 'bg-kraken/15 text-kraken-light ring-1 ring-kraken/25'
-          : 'bg-surface-border/60 text-txt-secondary ring-1 ring-surface-border',
-      ].join(' ')}
+      className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide bg-surface-border/60 text-txt-secondary ring-1 ring-surface-border"
     >
-      {isLlm ? 'LLM' : 'RULES'}
+      RULES
     </span>
   )
 }
@@ -169,22 +182,27 @@ export default function LeaderboardTable({ rows, onRowClick }: Props) {
           </tr>
         </thead>
         <tbody className="divide-y divide-surface-border/60">
-          {rows.map((row, idx) => (
+          {rows.map((row, idx) => {
+            // Manual is a virtual row — there's no detail drawer for it
+            // (no per-strategy endpoints exist), so it's non-interactive.
+            const isManual = row.id === 'manual'
+            return (
             <tr
               key={row.id}
-              role="button"
-              tabIndex={0}
-              aria-label={`Open ${row.name} details`}
-              onClick={() => onRowClick(row.id)}
-              onKeyDown={e => {
+              role={isManual ? undefined : 'button'}
+              tabIndex={isManual ? -1 : 0}
+              aria-label={isManual ? undefined : `Open ${row.name} details`}
+              onClick={isManual ? undefined : () => onRowClick(row.id)}
+              onKeyDown={isManual ? undefined : e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   onRowClick(row.id)
                 }
               }}
               className={[
-                'cursor-pointer hover:bg-surface-hover/50 focus:bg-surface-hover/60 outline-none',
-                row.id === 'manual' ? 'bg-kraken/[0.04]' : '',
+                isManual
+                  ? 'bg-kraken/[0.04]'
+                  : 'cursor-pointer hover:bg-surface-hover/50 focus:bg-surface-hover/60 outline-none',
               ].join(' ')}
             >
               <td className="px-3 py-3 text-right text-txt-muted font-mono tabular-nums">
@@ -217,7 +235,8 @@ export default function LeaderboardTable({ rows, onRowClick }: Props) {
               </td>
               <StatusCell status={row.status} />
             </tr>
-          ))}
+            )
+          })}
         </tbody>
       </table>
     </div>
