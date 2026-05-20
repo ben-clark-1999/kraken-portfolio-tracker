@@ -185,6 +185,67 @@ def get_all_ledger_entries() -> list[dict]:
     return entries
 
 
+def get_cash_flow_entries(since: "datetime | None" = None) -> list[dict]:
+    """Return Kraken deposit + withdrawal ledger entries as normalised dicts.
+
+    Each dict shape:
+        {
+            "kraken_refid": str,
+            "kind": "deposit" | "withdrawal",
+            "amount_aud": Decimal,              # always positive
+            "asset": str,                       # "AUD" for fiat, otherwise the Kraken asset code
+            "occurred_at": datetime,
+        }
+
+    Non-AUD entries are returned with `asset` set to the raw Kraken code so
+    the caller can emit a system_alert and skip. `since` is exclusive; pass
+    `None` to fetch everything.
+    """
+    user = _get_user()
+    all_entries: dict[str, dict] = {}
+    offset = 0
+
+    while True:
+        try:
+            result = user.get_ledgers_info(ofs=offset)
+        except Exception as e:
+            raise KrakenServiceError(f"get_cash_flow_entries failed: {e}") from e
+        ledger: dict = result.get("ledger", {})
+        count: int = result.get("count", 0)
+        if not ledger:
+            break
+        all_entries.update(ledger)
+        offset += len(ledger)
+        if offset >= count:
+            break
+
+    since_ts = since.timestamp() if since is not None else None
+
+    out: list[dict] = []
+    for entry in all_entries.values():
+        entry_type = entry.get("type")
+        if entry_type not in ("deposit", "withdrawal"):
+            continue
+        ts = float(entry["time"])
+        if since_ts is not None and ts <= since_ts:
+            continue
+        raw_asset = entry.get("asset", "")
+        # ZAUD is Kraken's code for fiat AUD. Strip the leading "Z" so
+        # downstream code can match on a clean "AUD".
+        asset = "AUD" if raw_asset == "ZAUD" else raw_asset
+        amount = Decimal(str(entry["amount"]))
+        out.append({
+            "kraken_refid": entry["refid"],
+            "kind": entry_type,
+            "amount_aud": abs(amount),
+            "asset": asset,
+            "occurred_at": datetime.fromtimestamp(ts, tz=timezone.utc),
+        })
+
+    out.sort(key=lambda e: e["occurred_at"])
+    return out
+
+
 def get_ohlc_daily(pair: str) -> dict[str, float]:
     """Return daily close prices as ``{YYYY-MM-DD: close_price}``.
 
