@@ -9,6 +9,7 @@ same way as paper strategies.
 """
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -108,3 +109,45 @@ def compute_twr(
     twr_total = twr_factor * final_return
     twr_pct = (twr_total - Decimal("1")) * Decimal("100")
     return twr_pct.quantize(Decimal("0.01")), unit_curve
+
+
+def adjust_equity_with_aud_cash(
+    equity_points: list[EquityPoint],
+    ledger_entries: list[dict],
+) -> list[EquityPoint]:
+    """Add the running ZAUD-fiat balance to each snapshot's total_value_aud.
+
+    portfolio_snapshots track only crypto holdings, so a fresh AUD deposit
+    looks like a phantom drop until it's converted to crypto. We rebuild
+    the running ZAUD balance from the full Kraken ledger (every deposit,
+    withdrawal, trade-spend, and fee) and add the balance-at-snapshot-time
+    to each equity point. With this adjustment, the cash-flow algorithm in
+    compute_twr no longer books phantom losses on deposit days.
+
+    `ledger_entries` is the raw output of kraken_service.get_all_ledger_entries
+    (each entry has `time` as a float epoch and `asset` as the Kraken code,
+    e.g. "ZAUD" for fiat AUD).
+    """
+    sorted_entries = sorted(ledger_entries, key=lambda e: float(e["time"]))
+    aud_times: list[float] = []
+    aud_balances: list[Decimal] = []
+    running = Decimal("0")
+    for e in sorted_entries:
+        if e.get("asset") == "ZAUD":
+            running += Decimal(str(e["amount"]))
+        aud_times.append(float(e["time"]))
+        aud_balances.append(running)
+
+    def _aud_at(ts: float) -> Decimal:
+        if not aud_times:
+            return Decimal("0")
+        idx = bisect_right(aud_times, ts) - 1
+        return aud_balances[idx] if idx >= 0 else Decimal("0")
+
+    return [
+        EquityPoint(
+            captured_at=ep.captured_at,
+            total_value_aud=ep.total_value_aud + _aud_at(ep.captured_at.timestamp()),
+        )
+        for ep in equity_points
+    ]

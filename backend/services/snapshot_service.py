@@ -184,8 +184,12 @@ def backfill_from_ledger(schema: str = "public") -> int:
             skipped_no_price += 1
             continue
 
+        # End-of-day timestamp so deposits/withdrawals that occurred during
+        # the day are correctly ordered BEFORE this snapshot in the TWR
+        # algorithm. The balance recorded here is the running total after
+        # the last ledger entry on this date, not the start-of-day balance.
         snapshots_repo.insert(
-            captured_at=f"{date_str}T00:00:00+00:00",
+            captured_at=f"{date_str}T23:59:59+00:00",
             total_value_aud=round(total, 2),
             assets_json=assets_json,
             schema=schema,

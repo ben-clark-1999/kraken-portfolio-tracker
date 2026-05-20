@@ -20,16 +20,24 @@ def client(bypass_auth):
 
 @pytest.fixture(autouse=True)
 def _truncate_and_seed(monkeypatch):
-    db = get_supabase()
-    db.schema(SCHEMA).table("manual_cash_flows").delete().neq("id", _SENTINEL_UUID).execute()
-    db.schema(SCHEMA).table("system_alerts").delete().neq("id", _SENTINEL_UUID).execute()
+    # The leaderboard router uses the public schema, so these tests run
+    # against real prod data. The assertions are deliberately loose (field
+    # presence, basic shape) and do NOT depend on table state — so we must
+    # NEVER mutate public-schema rows here. Stub out the Kraken calls so
+    # no new cash flows or alerts get written either.
     kraken_service._user = None
     kraken_service._market = None
-    # Don't truncate strategies/portfolio_snapshots in public — they're real prod data.
-    # Use a monkeypatch on kraken_service.get_cash_flow_entries to control inputs.
     monkeypatch.setattr(
         kraken_service, "get_cash_flow_entries",
         lambda since=None: [],
+    )
+    monkeypatch.setattr(
+        kraken_service, "get_all_ledger_entries",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        kraken_service, "get_trade_history",
+        lambda since_trade_id=None: [],
     )
     yield
 

@@ -134,9 +134,10 @@ def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
     Returns None if there's no portfolio data to summarise.
     """
     from backend.services.manual_performance import (
-        CashFlowEvent, EquityPoint, compute_twr,
+        CashFlowEvent, EquityPoint, adjust_equity_with_aud_cash, compute_twr,
     )
     from backend.repositories import manual_cash_flows_repo, snapshots_repo
+    from backend.services import kraken_service as _ks
     from backend.services.trading import metrics
     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 
@@ -150,18 +151,28 @@ def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
         since=window_start_dt, schema=schema,
     )
 
+    # Snapshots are crypto-only; add historical AUD-fiat cash from the ledger
+    # so deposit days don't book phantom losses against the TWR baseline.
+    try:
+        ledger_entries = _ks.get_all_ledger_entries()
+    except Exception:
+        ledger_entries = []
+
     def _to_dt(value) -> _dt:
         if isinstance(value, str):
             return _dt.fromisoformat(value.replace("Z", "+00:00"))
         return value
 
-    equity_points = [
-        EquityPoint(
-            captured_at=_to_dt(s.captured_at),
-            total_value_aud=Decimal(str(s.total_value_aud)),
-        )
-        for s in snaps
-    ]
+    equity_points = adjust_equity_with_aud_cash(
+        [
+            EquityPoint(
+                captured_at=_to_dt(s.captured_at),
+                total_value_aud=Decimal(str(s.total_value_aud)),
+            )
+            for s in snaps
+        ],
+        ledger_entries,
+    )
 
     cash_flows = [
         CashFlowEvent(
@@ -186,13 +197,16 @@ def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
         return twr_w
 
     all_snaps = snapshots_repo.get_all(schema=schema)
-    all_equity = [
-        EquityPoint(
-            captured_at=_to_dt(s.captured_at),
-            total_value_aud=Decimal(str(s.total_value_aud)),
-        )
-        for s in all_snaps
-    ]
+    all_equity = adjust_equity_with_aud_cash(
+        [
+            EquityPoint(
+                captured_at=_to_dt(s.captured_at),
+                total_value_aud=Decimal(str(s.total_value_aud)),
+            )
+            for s in all_snaps
+        ],
+        ledger_entries,
+    )
     all_flows_raw = manual_cash_flows_repo.list_since(
         since=_dt(1970, 1, 1, tzinfo=_tz.utc), schema=schema,
     )
@@ -209,7 +223,6 @@ def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
     current_equity = equity_points[-1].total_value_aud
 
     # Count trades: ledger-derived buy trades within the window.
-    from backend.services import kraken_service as _ks
     try:
         trades_all = _ks.get_trade_history()
         window_start_ts = window_start_dt.timestamp()
