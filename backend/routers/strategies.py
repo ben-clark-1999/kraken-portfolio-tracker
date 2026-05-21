@@ -132,74 +132,59 @@ def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
     comparison-window launch with $0 cash and $0 positions, then mirrors
     the user's Kraken activity since then.
 
-    This makes Manual directly comparable to the paper strategies: both
-    start fresh at launch and compete on the basis of trades made since.
-    Pre-launch crypto holdings are deliberately excluded — the experiment
-    is "do my new trades beat the strategies' new trades".
+    Reads from the durable `manual_cash_flows` + `manual_trades` tables
+    (kept fresh by manual_cash_flow_scanner) rather than calling Kraken
+    at request time. That way a transient Kraken REST hiccup doesn't
+    make Manual read as "$0, 0 trades" when the user actually has
+    activity recorded in DB.
 
-    Ledger interpretation since window_start:
-      - deposit/withdrawal of ZAUD     → manual cash in/out
-      - spend ZAUD + receive crypto    → buy trade (cash out, position in)
-      - spend crypto + receive ZAUD    → sell trade (position out, cash in)
-      - staking/transfer entries       → ignored (attribution is messy
-                                          and they apply to pre-launch
-                                          positions too)
+    Current crypto prices still come from Kraken at request time; if
+    those fail we fall back to the trade's executed AUD price so equity
+    is at least a sane estimate.
     """
-    from backend.config.assets import BALANCE_KEY_TO_DISPLAY
+    from backend.repositories import manual_cash_flows_repo, manual_trades_repo
     from backend.services import kraken_service as _ks
     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 
-    try:
-        ledger = _ks.get_all_ledger_entries()
-    except Exception:
-        ledger = []
+    cash_flows = manual_cash_flows_repo.list_since(
+        since=window_start_dt, schema=schema,
+    )
+    trades = manual_trades_repo.list_since(
+        since=window_start_dt, schema=schema,
+    )
 
-    window_ts = window_start_dt.timestamp()
     cash = Decimal("0")
-    positions: dict[str, Decimal] = {}
     net_deposits = Decimal("0")
-    trade_count = 0
-    seen_trade_refids: set[str] = set()
+    for f in cash_flows:
+        amt = Decimal(str(f["amount_aud"]))
+        if f["kind"] == "deposit":
+            cash += amt
+            net_deposits += amt
+        elif f["kind"] == "withdrawal":
+            cash -= amt
+            net_deposits -= amt
+
+    positions: dict[str, Decimal] = {}
+    avg_cost: dict[str, Decimal] = {}            # for price-fallback
     fees_30d_aud = Decimal("0")
-    thirty_days_ago_ts = (_dt.now(_tz.utc) - _td(days=30)).timestamp()
-
-    for e in sorted(ledger, key=lambda x: float(x["time"])):
-        ts = float(e["time"])
-        if ts < window_ts:
-            continue
-        etype = e.get("type", "")
-        asset = e.get("asset", "")
-        try:
-            amount = Decimal(str(e.get("amount", 0)))
-        except Exception:
-            continue
-        fee_raw = e.get("fee")
-        try:
-            fee = Decimal(str(fee_raw)) if fee_raw not in (None, "") else Decimal("0")
-        except Exception:
-            fee = Decimal("0")
-        refid = e.get("refid", "") or ""
-
-        if asset == "ZAUD":
-            if etype == "deposit":
-                cash += amount
-                net_deposits += amount
-            elif etype == "withdrawal":
-                cash += amount                  # signed negative
-                net_deposits += amount          # signed negative
-            elif etype == "spend":              # buying crypto
-                cash += amount                  # signed negative
-            elif etype == "receive":            # selling crypto
-                cash += amount
-            if ts >= thirty_days_ago_ts and etype in ("spend", "receive"):
-                fees_30d_aud += fee
-        else:
-            display = BALANCE_KEY_TO_DISPLAY.get(asset)
-            if display and etype in ("receive", "spend"):
-                positions[display] = positions.get(display, Decimal("0")) + amount
-                if refid and refid not in seen_trade_refids:
-                    trade_count += 1
-                    seen_trade_refids.add(refid)
+    thirty_days_ago_dt = _dt.now(_tz.utc) - _td(days=30)
+    trade_count = 0
+    for t in trades:
+        qty = Decimal(str(t["base_qty"]))
+        aud = Decimal(str(t["aud_amount"]))
+        fee = Decimal(str(t.get("fee_aud") or 0))
+        asset = t["base_asset"]
+        if t["side"] == "buy":
+            cash -= aud
+            positions[asset] = positions.get(asset, Decimal("0")) + qty
+            avg_cost[asset] = (aud / qty) if qty > 0 else Decimal("0")
+        elif t["side"] == "sell":
+            cash += aud
+            positions[asset] = positions.get(asset, Decimal("0")) - qty
+        trade_count += 1
+        occurred = _dt.fromisoformat(t["occurred_at"].replace("Z", "+00:00"))
+        if occurred >= thirty_days_ago_dt:
+            fees_30d_aud += fee
 
     # Current equity = synthetic cash + crypto positions at current prices.
     held = [a for a, q in positions.items() if q > 0]
@@ -207,11 +192,12 @@ def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
         prices = _ks.get_ticker_prices(held) if held else {}
     except Exception:
         prices = {}
-    pos_value = sum(
-        (qty * prices.get(asset, Decimal("0"))
-         for asset, qty in positions.items() if qty > 0),
-        Decimal("0"),
-    )
+    pos_value = Decimal("0")
+    for asset, qty in positions.items():
+        if qty <= 0:
+            continue
+        price = prices.get(asset) or avg_cost.get(asset) or Decimal("0")
+        pos_value += qty * price
     current_equity = cash + pos_value
 
     # Cash-on-cash return since launch. If no money has been deployed yet,
