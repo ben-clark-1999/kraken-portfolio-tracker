@@ -306,6 +306,74 @@ def health() -> dict:
     return build_health_payload(schema=SCHEMA)
 
 
+@router.get("/manual-lifetime/equity")
+def get_manual_lifetime_equity(range: str = Query("30d")) -> dict:
+    """Equity curve for the 'Manual (all time)' virtual row.
+
+    Reads portfolio_snapshots + manual_cash_flows and runs compute_twr
+    so deposits during the window don't show up as phantom gains on the
+    chart. The output shape matches the per-strategy equity endpoint so
+    the frontend can reuse the same merging code.
+    """
+    from backend.repositories import (
+        manual_cash_flows_repo, snapshots_repo,
+    )
+    from backend.services.manual_performance import (
+        CashFlowEvent, EquityPoint, compute_twr,
+    )
+
+    spans = {"1d": 1, "7d": 7, "30d": 30, "90d": 90, "all": 10_000}
+    if range not in spans:
+        raise HTTPException(status_code=400, detail="Bad range")
+    since = datetime.now(timezone.utc) - timedelta(days=spans[range])
+
+    snaps = snapshots_repo.get_all(from_dt=since.isoformat(), schema=SCHEMA)
+    btc = paper_equity_repo.list_benchmark_curve(
+        "btc_hodl", since=since, schema=SCHEMA)
+    basket = paper_equity_repo.list_benchmark_curve(
+        "alt_basket_equal_weight", since=since, schema=SCHEMA)
+
+    if not snaps:
+        return {
+            "strategy": [],
+            "benchmarks": {"btc_hodl": btc, "alt_basket_equal_weight": basket},
+        }
+
+    flows_raw = manual_cash_flows_repo.list_since(since=since, schema=SCHEMA)
+
+    def _to_dt(v):
+        if isinstance(v, str):
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        return v
+
+    equity_points = [
+        EquityPoint(captured_at=_to_dt(s.captured_at),
+                    total_value_aud=Decimal(str(s.total_value_aud)))
+        for s in snaps
+    ]
+    cash_flows = [
+        CashFlowEvent(occurred_at=_to_dt(f["occurred_at"]),
+                      amount_aud=Decimal(str(f["amount_aud"])),
+                      kind=f["kind"])
+        for f in flows_raw
+    ]
+
+    _, unit_curve = compute_twr(equity_points, cash_flows)
+
+    # Scale the synthetic-unit curve up to the window's starting value so
+    # the chart's % normaliser produces the same number as the leaderboard
+    # would for the same range.
+    base = equity_points[0].total_value_aud
+    strategy = [
+        {"ts": ep.captured_at.isoformat(), "equity_aud": str(base * unit)}
+        for ep, unit in zip(equity_points, unit_curve)
+    ]
+    return {
+        "strategy": strategy,
+        "benchmarks": {"btc_hodl": btc, "alt_basket_equal_weight": basket},
+    }
+
+
 @router.get("/{strategy_id}")
 def get_strategy(strategy_id: UUID) -> dict:
     s = strategies_repo.get(strategy_id, schema=SCHEMA)

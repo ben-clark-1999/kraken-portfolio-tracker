@@ -46,12 +46,12 @@ export default function StrategiesPage() {
       return
     }
     let cancelled = false
-    // The Manual rows (execution_mode === 'manual') are virtual leaderboard
-    // entries with no /api/strategies/{id}/equity endpoint. Filter them out
-    // before the per-row fetch, otherwise the FastAPI UUID validator
-    // rejects the sentinel ids with 422 and Promise.all rejects, emptying
-    // the equity-vs-benchmarks chart.
-    const fetchable = rows.filter(r => r.execution_mode !== 'manual')
+    // The 'Manual' since-launch row (id='manual') has no equity endpoint —
+    // it'd just collapse to a single point at the window edge anyway, so
+    // skip it on the chart. The 'Manual (all time)' row DOES have an
+    // endpoint (/manual-lifetime/equity) that returns a TWR-adjusted
+    // curve, so include it like a regular strategy.
+    const fetchable = rows.filter(r => r.id !== 'manual')
     Promise.all(fetchable.map(r => fetchEquityCurve(r.id, range)))
       .then(responses => { if (!cancelled) setCurves(responses) })
       .catch(() => {
@@ -64,7 +64,7 @@ export default function StrategiesPage() {
     if (!rows || !curves) return null
     // curves[] is indexed against the Manual-filtered list above, so we
     // build the series from the same filtered view to keep indices aligned.
-    const fetchable = rows.filter(r => r.execution_mode !== 'manual')
+    const fetchable = rows.filter(r => r.id !== 'manual')
     return fetchable.map((r, i) => ({
       id: r.id,
       name: r.name,
@@ -134,7 +134,7 @@ export default function StrategiesPage() {
             </section>
 
             <section className="border-t border-surface-border pt-10 pb-16">
-              <SectionHeader>Equity vs. benchmarks</SectionHeader>
+              <SectionHeader>% change vs. benchmarks</SectionHeader>
               {equitySeries ? (
                 <EquityChart
                   strategies={equitySeries}

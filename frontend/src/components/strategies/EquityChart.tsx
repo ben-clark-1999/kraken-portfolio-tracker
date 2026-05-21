@@ -70,19 +70,43 @@ function toNum(s: string): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+function firstNonZeroValue(curve: CurvePoint[]): number | undefined {
+  for (const p of curve) {
+    const v = toNum(p.equity_aud)
+    if (v !== undefined && v !== 0) return v
+  }
+  return undefined
+}
+
 function mergeData(
   strategies: StrategySeries[],
   benchmarks: BenchmarkSet,
 ): ChartRow[] {
+  // Compute each series' baseline (first non-zero value in the window).
+  // Every datapoint is then rendered as % change from its own baseline so
+  // strategies starting at different capital amounts (paper: $1000,
+  // Manual: $6,200-ish) line up on the same Y axis.
+  const baseline = new Map<string, number>()
+  for (const s of strategies) {
+    const v = firstNonZeroValue(s.curve)
+    if (v !== undefined) baseline.set(s.id, v)
+  }
+  const btcBase = firstNonZeroValue(benchmarks.btc_hodl)
+  const altBase = firstNonZeroValue(benchmarks.alt_basket_equal_weight)
+  if (btcBase !== undefined) baseline.set(BENCH_KEYS.btc, btcBase)
+  if (altBase !== undefined) baseline.set(BENCH_KEYS.alt, altBase)
+
   const rows = new Map<string, ChartRow>()
   const upsert = (ts: string, key: string, value: number | undefined) => {
     if (value === undefined) return
+    const base = baseline.get(key)
+    if (base === undefined || base === 0) return
     let row = rows.get(ts)
     if (!row) {
       row = { time: ts }
       rows.set(ts, row)
     }
-    row[key] = value
+    row[key] = ((value / base) - 1) * 100
   }
   for (const s of strategies) {
     for (const p of s.curve) upsert(p.ts, s.id, toNum(p.equity_aud))
@@ -101,12 +125,13 @@ function formatXTick(range: EquityRange, iso: string): string {
 }
 
 function formatY(v: number): string {
-  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`
-  return `$${Math.round(v)}`
+  const sign = v > 0 ? '+' : ''
+  return `${sign}${v.toFixed(Math.abs(v) >= 10 ? 0 : 1)}%`
 }
 
-function formatAud2(v: number): string {
-  return `$${v.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+function formatPctTooltip(v: number): string {
+  const sign = v > 0 ? '+' : ''
+  return `${sign}${v.toFixed(2)}%`
 }
 
 function formatTooltipTime(iso: string, range: EquityRange): string {
@@ -163,7 +188,7 @@ function ChartTooltip({ active, payload, label, seriesByKey, range }: TooltipPro
             />
             <span className="text-txt-secondary truncate max-w-[10rem]">{p.meta.name}</span>
             <span className="ml-auto font-mono text-txt-primary tabular-nums">
-              {formatAud2(Number(p.value))}
+              {formatPctTooltip(Number(p.value))}
             </span>
           </li>
         ))}
@@ -279,7 +304,7 @@ export default function EquityChart({
                 axisLine={false}
                 tick={{ fontSize: 11, fill: '#9691a8' }}
                 tickFormatter={formatY}
-                domain={[0, 'auto']}
+                domain={['auto', 'auto']}
                 width={56}
               />
               <Tooltip
