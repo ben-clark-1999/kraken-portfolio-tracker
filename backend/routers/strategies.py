@@ -114,6 +114,9 @@ def leaderboard() -> list[dict]:
         )
         if manual_row is not None:
             out.append(manual_row)
+        lifetime_row = _compute_manual_lifetime_row(schema=SCHEMA)
+        if lifetime_row is not None:
+            out.append(lifetime_row)
     except Exception:
         import logging
         logging.getLogger(__name__).exception(
@@ -224,6 +227,73 @@ def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
         "return_all_time_pct": str(twr_pct),
         "sharpe": str(sharpe),
         "max_drawdown_pct": str(max_dd),
+        "trades": trade_count,
+        "cost_30d_aud": str(fees_30d_aud),
+        "persona_prompt_stable_since": None,
+    }
+
+
+def _compute_manual_lifetime_row(*, schema: str) -> dict | None:
+    """Build the 'Manual (all time)' row: full-history cash-on-cash on
+    every dollar the user has ever put on Kraken.
+
+    Unlike `_compute_manual_row`, which mirrors the paper-strategy frame
+    (only trades since the comparison window opened), this row answers
+    the simpler question: "did your existing crypto stack outperform
+    holding cash, summed over your entire investing history?".
+
+      equity   = latest portfolio_snapshots.total_value_aud
+                 (full Kraken crypto value — includes staking gains)
+      deposits = sum(deposits) - sum(withdrawals) across all time
+      return   = (equity - deposits) / deposits
+
+    Returns None if there's no snapshot or no deposits to compare against.
+    """
+    from backend.repositories import (
+        manual_cash_flows_repo, manual_trades_repo, snapshots_repo,
+    )
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    snaps = snapshots_repo.get_all(schema=schema)
+    if not snaps:
+        return None
+    latest = max(snaps, key=lambda s: s.captured_at)
+    equity = Decimal(str(latest.total_value_aud))
+
+    epoch = _dt(1970, 1, 1, tzinfo=_tz.utc)
+    flows = manual_cash_flows_repo.list_since(since=epoch, schema=schema)
+    net_deposits = Decimal("0")
+    for f in flows:
+        amt = Decimal(str(f["amount_aud"]))
+        if f["kind"] == "deposit":
+            net_deposits += amt
+        elif f["kind"] == "withdrawal":
+            net_deposits -= amt
+
+    if net_deposits <= 0:
+        return None
+    return_pct = ((equity - net_deposits) / net_deposits) * Decimal("100")
+
+    trades = manual_trades_repo.list_since(since=epoch, schema=schema)
+    trade_count = len(trades)
+    thirty_days_ago_dt = _dt.now(_tz.utc) - _td(days=30)
+    fees_30d_aud = Decimal("0")
+    for t in trades:
+        occurred = _dt.fromisoformat(t["occurred_at"].replace("Z", "+00:00"))
+        if occurred >= thirty_days_ago_dt:
+            fees_30d_aud += Decimal(str(t.get("fee_aud") or 0))
+
+    return {
+        "id": "manual-lifetime",
+        "name": "Manual (all time)",
+        "status": "active",
+        "execution_mode": "manual",
+        "equity_aud": str(equity),
+        "return_7d_pct": str(return_pct),
+        "return_30d_pct": str(return_pct),
+        "return_all_time_pct": str(return_pct),
+        "sharpe": "0",
+        "max_drawdown_pct": "0",
         "trades": trade_count,
         "cost_30d_aud": str(fees_30d_aud),
         "persona_prompt_stable_since": None,

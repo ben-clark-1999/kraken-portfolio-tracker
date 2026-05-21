@@ -94,8 +94,8 @@ def test_leaderboard_returns_one_row_per_strategy():
     assert r.status_code == 200
     rows = r.json()
     assert isinstance(rows, list)
-    # 2 paper strategies + 1 always-on Manual virtual row.
-    paper_rows = [r for r in rows if r["id"] != "manual"]
+    # 2 paper strategies + up to 2 always-on Manual virtual rows.
+    paper_rows = [r for r in rows if r["execution_mode"] != "manual"]
     assert len(paper_rows) == 2
     row = paper_rows[0]
     assert "equity_aud" in row

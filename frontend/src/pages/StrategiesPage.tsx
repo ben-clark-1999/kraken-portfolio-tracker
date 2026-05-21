@@ -46,12 +46,12 @@ export default function StrategiesPage() {
       return
     }
     let cancelled = false
-    // The Manual row (id="manual") is a virtual leaderboard row, not a
-    // paper-trading strategy — it has no /api/strategies/{id}/equity
-    // endpoint. Filter it out before the per-row fetch, otherwise the
-    // FastAPI UUID validator rejects "manual" with 422 and Promise.all
-    // rejects, emptying the equity-vs-benchmarks chart.
-    const fetchable = rows.filter(r => r.id !== 'manual')
+    // The Manual rows (execution_mode === 'manual') are virtual leaderboard
+    // entries with no /api/strategies/{id}/equity endpoint. Filter them out
+    // before the per-row fetch, otherwise the FastAPI UUID validator
+    // rejects the sentinel ids with 422 and Promise.all rejects, emptying
+    // the equity-vs-benchmarks chart.
+    const fetchable = rows.filter(r => r.execution_mode !== 'manual')
     Promise.all(fetchable.map(r => fetchEquityCurve(r.id, range)))
       .then(responses => { if (!cancelled) setCurves(responses) })
       .catch(() => {
@@ -64,7 +64,7 @@ export default function StrategiesPage() {
     if (!rows || !curves) return null
     // curves[] is indexed against the Manual-filtered list above, so we
     // build the series from the same filtered view to keep indices aligned.
-    const fetchable = rows.filter(r => r.id !== 'manual')
+    const fetchable = rows.filter(r => r.execution_mode !== 'manual')
     return fetchable.map((r, i) => ({
       id: r.id,
       name: r.name,

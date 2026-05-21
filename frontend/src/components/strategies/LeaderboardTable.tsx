@@ -167,9 +167,9 @@ export default function LeaderboardTable({ rows, onRowClick }: Props) {
         </thead>
         <tbody className="divide-y divide-surface-border/60">
           {rows.map((row, idx) => {
-            // Manual is a virtual row — there's no detail drawer for it
-            // (no per-strategy endpoints exist), so it's non-interactive.
-            const isManual = row.id === 'manual'
+            // Manual rows are virtual — there's no detail drawer for them
+            // (no per-strategy endpoints exist), so they're non-interactive.
+            const isManual = row.execution_mode === 'manual'
             return (
             <tr
               key={row.id}
