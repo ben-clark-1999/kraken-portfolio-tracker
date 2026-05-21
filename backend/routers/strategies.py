@@ -99,7 +99,6 @@ def leaderboard() -> list[dict]:
             "return_7d_pct": str(_ret_pct(7)),
             "return_30d_pct": str(_ret_pct(30)),
             "return_all_time_pct": str(all_time),
-            "lifetime_return_pct": str(all_time),   # paper: lifetime == all-time
             "sharpe": str(sharpe),
             "max_drawdown_pct": str(max_dd),
             "trades": trades,
@@ -129,106 +128,104 @@ def leaderboard() -> list[dict]:
 
 
 def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
-    """Build the Manual leaderboard row from portfolio_snapshots + cash flows.
+    """Build the Manual row as a synthetic strategy that starts at the
+    comparison-window launch with $0 cash and $0 positions, then mirrors
+    the user's Kraken activity since then.
 
-    Returns None if there's no portfolio data to summarise.
+    This makes Manual directly comparable to the paper strategies: both
+    start fresh at launch and compete on the basis of trades made since.
+    Pre-launch crypto holdings are deliberately excluded — the experiment
+    is "do my new trades beat the strategies' new trades".
+
+    Ledger interpretation since window_start:
+      - deposit/withdrawal of ZAUD     → manual cash in/out
+      - spend ZAUD + receive crypto    → buy trade (cash out, position in)
+      - spend crypto + receive ZAUD    → sell trade (position out, cash in)
+      - staking/transfer entries       → ignored (attribution is messy
+                                          and they apply to pre-launch
+                                          positions too)
     """
-    from backend.services.manual_performance import (
-        CashFlowEvent, EquityPoint, adjust_equity_with_aud_cash, compute_twr,
-    )
-    from backend.repositories import manual_cash_flows_repo, snapshots_repo
+    from backend.config.assets import BALANCE_KEY_TO_DISPLAY
     from backend.services import kraken_service as _ks
-    from backend.services.trading import metrics
     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 
-    snaps = snapshots_repo.get_all(
-        from_dt=window_start_dt.isoformat(), schema=schema,
-    )
-    if not snaps:
-        return None
-
-    flows = manual_cash_flows_repo.list_since(
-        since=window_start_dt, schema=schema,
-    )
-
-    # Snapshots are crypto-only; add historical AUD-fiat cash from the ledger
-    # so deposit days don't book phantom losses against the TWR baseline.
     try:
-        ledger_entries = _ks.get_all_ledger_entries()
+        ledger = _ks.get_all_ledger_entries()
     except Exception:
-        ledger_entries = []
+        ledger = []
 
-    def _to_dt(value) -> _dt:
-        if isinstance(value, str):
-            return _dt.fromisoformat(value.replace("Z", "+00:00"))
-        return value
+    window_ts = window_start_dt.timestamp()
+    cash = Decimal("0")
+    positions: dict[str, Decimal] = {}
+    net_deposits = Decimal("0")
+    trade_count = 0
+    seen_trade_refids: set[str] = set()
+    fees_30d_aud = Decimal("0")
+    thirty_days_ago_ts = (_dt.now(_tz.utc) - _td(days=30)).timestamp()
 
-    equity_points = adjust_equity_with_aud_cash(
-        [
-            EquityPoint(
-                captured_at=_to_dt(s.captured_at),
-                total_value_aud=Decimal(str(s.total_value_aud)),
-            )
-            for s in snaps
-        ],
-        ledger_entries,
-    )
+    for e in sorted(ledger, key=lambda x: float(x["time"])):
+        ts = float(e["time"])
+        if ts < window_ts:
+            continue
+        etype = e.get("type", "")
+        asset = e.get("asset", "")
+        try:
+            amount = Decimal(str(e.get("amount", 0)))
+        except Exception:
+            continue
+        fee_raw = e.get("fee")
+        try:
+            fee = Decimal(str(fee_raw)) if fee_raw not in (None, "") else Decimal("0")
+        except Exception:
+            fee = Decimal("0")
+        refid = e.get("refid", "") or ""
 
-    cash_flows = [
-        CashFlowEvent(
-            occurred_at=_to_dt(f["occurred_at"]),
-            amount_aud=Decimal(str(f["amount_aud"])),
-            kind=f["kind"],
-        )
-        for f in flows
-    ]
+        if asset == "ZAUD":
+            if etype == "deposit":
+                cash += amount
+                net_deposits += amount
+            elif etype == "withdrawal":
+                cash += amount                  # signed negative
+                net_deposits += amount          # signed negative
+            elif etype == "spend":              # buying crypto
+                cash += amount                  # signed negative
+            elif etype == "receive":            # selling crypto
+                cash += amount
+            if ts >= thirty_days_ago_ts and etype in ("spend", "receive"):
+                fees_30d_aud += fee
+        else:
+            display = BALANCE_KEY_TO_DISPLAY.get(asset)
+            if display and etype in ("receive", "spend"):
+                positions[display] = positions.get(display, Decimal("0")) + amount
+                if refid and refid not in seen_trade_refids:
+                    trade_count += 1
+                    seen_trade_refids.add(refid)
 
-    twr_pct, unit_curve = compute_twr(equity_points, cash_flows)
-    sharpe = metrics.sharpe_24_7(unit_curve)
-    max_dd = metrics.max_drawdown_pct(unit_curve)
-
-    def _windowed(days: int) -> Decimal:
-        cutoff = _dt.now(_tz.utc) - _td(days=days)
-        window_snaps = [p for p in equity_points if p.captured_at >= cutoff]
-        window_flows = [c for c in cash_flows if c.occurred_at >= cutoff]
-        if len(window_snaps) < 2:
-            return Decimal("0")
-        twr_w, _ = compute_twr(window_snaps, window_flows)
-        return twr_w
-
-    all_snaps = snapshots_repo.get_all(schema=schema)
-    all_equity = adjust_equity_with_aud_cash(
-        [
-            EquityPoint(
-                captured_at=_to_dt(s.captured_at),
-                total_value_aud=Decimal(str(s.total_value_aud)),
-            )
-            for s in all_snaps
-        ],
-        ledger_entries,
-    )
-    all_flows_raw = manual_cash_flows_repo.list_since(
-        since=_dt(1970, 1, 1, tzinfo=_tz.utc), schema=schema,
-    )
-    all_flows = [
-        CashFlowEvent(
-            occurred_at=_to_dt(f["occurred_at"]),
-            amount_aud=Decimal(str(f["amount_aud"])),
-            kind=f["kind"],
-        )
-        for f in all_flows_raw
-    ]
-    lifetime_pct, _ = compute_twr(all_equity, all_flows)
-
-    current_equity = equity_points[-1].total_value_aud
-
-    # Count trades: ledger-derived buy trades within the window.
+    # Current equity = synthetic cash + crypto positions at current prices.
+    held = [a for a, q in positions.items() if q > 0]
     try:
-        trades_all = _ks.get_trade_history()
-        window_start_ts = window_start_dt.timestamp()
-        trade_count = sum(1 for t in trades_all if t["time"] >= window_start_ts)
+        prices = _ks.get_ticker_prices(held) if held else {}
     except Exception:
-        trade_count = 0
+        prices = {}
+    pos_value = sum(
+        (qty * prices.get(asset, Decimal("0"))
+         for asset, qty in positions.items() if qty > 0),
+        Decimal("0"),
+    )
+    current_equity = cash + pos_value
+
+    # Cash-on-cash return since launch. If no money has been deployed yet,
+    # the row exists but returns nothing comparable — show 0%.
+    if net_deposits > 0:
+        return_pct = ((current_equity - net_deposits) / net_deposits) * Decimal("100")
+    else:
+        return_pct = Decimal("0")
+
+    # Sharpe / max-DD need an equity curve over time. We don't synthesise
+    # one yet — show 0 until enough data accumulates to make them honest.
+    sharpe = Decimal("0")
+    max_dd = Decimal("0")
+    twr_pct = return_pct
 
     return {
         "id": "manual",
@@ -236,14 +233,13 @@ def _compute_manual_row(*, window_start_dt, schema: str) -> dict | None:
         "status": "active",
         "execution_mode": "manual",
         "equity_aud": str(current_equity),
-        "return_7d_pct": str(_windowed(7)),
-        "return_30d_pct": str(_windowed(30)),
+        "return_7d_pct": str(return_pct),
+        "return_30d_pct": str(return_pct),
         "return_all_time_pct": str(twr_pct),
-        "lifetime_return_pct": str(lifetime_pct),
         "sharpe": str(sharpe),
         "max_drawdown_pct": str(max_dd),
         "trades": trade_count,
-        "cost_30d_aud": "0",
+        "cost_30d_aud": str(fees_30d_aud),
         "persona_prompt_stable_since": None,
     }
 

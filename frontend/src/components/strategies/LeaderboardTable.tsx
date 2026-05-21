@@ -76,15 +76,6 @@ function PctCell({ value, stableSince, days }: { value: string; stableSince: str
   )
 }
 
-function MutedPctCell({ value }: { value: string }) {
-  const { text } = formatPctSigned(value)
-  return (
-    <td className="px-3 py-3 text-right font-mono tabular-nums text-xs text-txt-muted">
-      {text}
-    </td>
-  )
-}
-
 function ModeBadge({ mode }: { mode: ExecutionMode }) {
   if (mode === 'llm_agent') {
     return (
@@ -161,13 +152,6 @@ export default function LeaderboardTable({ rows, onRowClick }: Props) {
             <th scope="col" className="px-3 py-2 text-right">7d</th>
             <th scope="col" className="px-3 py-2 text-right">30d</th>
             <th scope="col" className="px-3 py-2 text-right">All-time</th>
-            <th
-              scope="col"
-              className="px-3 py-2 text-right"
-              title="Lifetime return: secondary context. Excludes window selection."
-            >
-              Lifetime
-            </th>
             <th scope="col" className="px-3 py-2 text-right">Sharpe</th>
             <th scope="col" className="px-3 py-2 text-right">Max DD</th>
             <th scope="col" className="px-3 py-2 text-right">Trades</th>
@@ -220,7 +204,6 @@ export default function LeaderboardTable({ rows, onRowClick }: Props) {
               <PctCell value={row.return_7d_pct} stableSince={row.persona_prompt_stable_since} days={7} />
               <PctCell value={row.return_30d_pct} stableSince={row.persona_prompt_stable_since} days={30} />
               <PctCell value={row.return_all_time_pct} stableSince={null} days={0} />
-              <MutedPctCell value={row.lifetime_return_pct} />
               <td className="px-3 py-3 text-right font-mono tabular-nums text-txt-secondary">
                 {formatSharpe(row.sharpe)}
               </td>

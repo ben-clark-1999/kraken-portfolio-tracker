@@ -52,16 +52,8 @@ def test_leaderboard_includes_manual_row(client):
     assert m["name"] == "Manual"
     assert m["execution_mode"] == "manual"
     assert "return_all_time_pct" in m
-    assert "lifetime_return_pct" in m
     assert "sharpe" in m
     assert "max_drawdown_pct" in m
-
-
-def test_every_row_has_lifetime_return_pct(client):
-    r = client.get("/api/strategies/_leaderboard")
-    assert r.status_code == 200
-    for row in r.json():
-        assert "lifetime_return_pct" in row, f"missing on {row.get('name')}"
 
 
 def test_rows_are_sorted_by_return_all_time_pct_desc(client):
