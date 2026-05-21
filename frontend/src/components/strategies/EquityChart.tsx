@@ -158,25 +158,36 @@ interface SeriesMeta {
 
 interface TooltipProps {
   active?: boolean
-  payload?: Array<{ dataKey: string; value: number }>
   label?: string | number
   seriesByKey: Map<string, SeriesMeta>
   range: EquityRange
+  // Last-known % at each timestamp for every series. Recharts' built-in
+  // payload only contains series with an EXPLICIT measurement at the
+  // hovered timestamp — different series record at different cadences,
+  // so the cursor often lands on a row where only one strategy ticked.
+  // We carry the most-recent measurement forward instead so the tooltip
+  // always shows every (non-hidden) method.
+  lookup: Map<string, Record<string, number>>
+  hidden: Set<string>
 }
 
-function ChartTooltip({ active, payload, label, seriesByKey, range }: TooltipProps) {
-  if (!active || !payload?.length) return null
-  const items = payload
-    .map(p => ({ ...p, meta: seriesByKey.get(String(p.dataKey)) }))
-    .filter((p): p is typeof p & { meta: SeriesMeta } => Boolean(p.meta))
+function ChartTooltip({ active, label, seriesByKey, range, lookup, hidden }: TooltipProps) {
+  if (!active || typeof label !== 'string') return null
+  const values = lookup.get(label)
+  if (!values) return null
+  const items: Array<{ key: string; meta: SeriesMeta; value: number }> = []
+  for (const [key, meta] of seriesByKey) {
+    if (hidden.has(key)) continue
+    const v = values[key]
+    if (typeof v === 'number') items.push({ key, meta, value: v })
+  }
+  if (items.length === 0) return null
   return (
     <div className="rounded border border-surface-border bg-surface-raised px-3 py-2 shadow-xl text-xs">
-      <p className="font-medium text-txt-muted mb-1.5">
-        {typeof label === 'string' ? formatTooltipTime(label, range) : ''}
-      </p>
+      <p className="font-medium text-txt-muted mb-1.5">{formatTooltipTime(label, range)}</p>
       <ul className="space-y-0.5">
         {items.map(p => (
-          <li key={p.dataKey} className="flex items-center gap-3">
+          <li key={p.key} className="flex items-center gap-3">
             <span
               className="inline-block h-0.5 w-4 rounded-sm shrink-0"
               style={{
@@ -188,7 +199,7 @@ function ChartTooltip({ active, payload, label, seriesByKey, range }: TooltipPro
             />
             <span className="text-txt-secondary truncate max-w-[10rem]">{p.meta.name}</span>
             <span className="ml-auto font-mono text-txt-primary tabular-nums">
-              {formatPctTooltip(Number(p.value))}
+              {formatPctTooltip(p.value)}
             </span>
           </li>
         ))}
@@ -248,6 +259,28 @@ export default function EquityChart({
 
   const data = useMemo(() => mergeData(strategies, benchmarks), [strategies, benchmarks])
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+
+  // Carry-forward lookup: at every timestamp in the merged data, what's
+  // each series' most-recently-seen value? Lets the tooltip show every
+  // method at any hovered point rather than only the ones that happened
+  // to have a measurement at that exact timestamp.
+  const tooltipLookup = useMemo(() => {
+    const sorted = [...data].sort((a, b) => a.time.localeCompare(b.time))
+    const allKeys = new Set<string>()
+    for (const r of sorted) {
+      for (const k of Object.keys(r)) if (k !== 'time') allKeys.add(k)
+    }
+    const lastSeen: Record<string, number> = {}
+    const out = new Map<string, Record<string, number>>()
+    for (const row of sorted) {
+      for (const key of allKeys) {
+        const v = row[key]
+        if (typeof v === 'number') lastSeen[key] = v
+      }
+      out.set(row.time, { ...lastSeen })
+    }
+    return out
+  }, [data])
 
   const toggle = (key: string) => {
     setHidden(prev => {
@@ -310,7 +343,12 @@ export default function EquityChart({
               <Tooltip
                 cursor={{ stroke: '#2a2735', strokeWidth: 1 }}
                 content={
-                  <ChartTooltip seriesByKey={seriesByKey} range={range} />
+                  <ChartTooltip
+                    seriesByKey={seriesByKey}
+                    range={range}
+                    lookup={tooltipLookup}
+                    hidden={hidden}
+                  />
                 }
               />
               {series.map(s => (
