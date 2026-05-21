@@ -11,8 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 def save_snapshot(summary: PortfolioSummary, schema: str = "public") -> None:
-    """Save a live snapshot, replacing any existing snapshot from today."""
-    snapshots_repo.delete_today(schema=schema)
+    """Append a live snapshot. The hourly cron used to call delete_today
+    first to keep only one row per day, but that left the strategies
+    chart with 24x too few points — the Manual (all time) line drew as
+    daily-resolution segments through a Bezier-smoothed series, producing
+    wild overshoot on sparse data. Keeping every hourly snap fixes that
+    and is trivial at scale (~9k rows/year).
+    """
     assets_json = {
         pos.asset: {
             "quantity": pos.quantity,

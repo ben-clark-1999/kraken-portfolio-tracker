@@ -316,7 +316,7 @@ export default function EquityChart({
               {series.map(s => (
                 <Line
                   key={s.key}
-                  type="monotone"
+                  type="linear"
                   dataKey={s.key}
                   name={s.name}
                   stroke={s.color}
