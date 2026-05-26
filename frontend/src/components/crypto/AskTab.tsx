@@ -2,7 +2,7 @@ import { Sparkles } from 'lucide-react'
 import AgentInput from '../AgentInput'
 import AgentConversation from '../AgentConversation'
 import SuggestionPills from '../SuggestionPills'
-import NewConversationButton from '../NewConversationButton'
+import ChatHistorySidebar from '../ChatHistorySidebar'
 import { useAgentChat } from '../../hooks/useAgentChat'
 
 const SUGGESTIONS = [
@@ -16,52 +16,57 @@ export default function AskTab() {
   const agent = useAgentChat()
   const empty = agent.messages.length === 0
 
-  if (empty) {
-    return (
-      <div className="relative overflow-hidden min-h-[560px] flex items-center justify-center">
-        {/* Backdrop blurs — kraken purple + accent teal, not generic AI blue */}
-        <div
-          aria-hidden
-          className="absolute top-0 right-0 w-[420px] h-[420px] rounded-full bg-kraken/30 blur-3xl opacity-30 pointer-events-none"
-        />
-        <div
-          aria-hidden
-          className="absolute bottom-0 left-0 w-[420px] h-[420px] rounded-full bg-accent/20 blur-3xl opacity-30 pointer-events-none"
-        />
-        <div className="relative w-full max-w-[640px] flex flex-col items-center text-center px-6">
-          <div className="bg-kraken/10 p-3 rounded-2xl mb-6">
-            <Sparkles className="w-6 h-6 text-kraken" />
-          </div>
-          <h1 className="text-3xl font-semibold text-txt-primary tracking-tight">
-            How can I help with your portfolio?
-          </h1>
-          <p className="text-txt-muted mt-3 text-base">
-            Ask anything about your holdings, P&amp;L, or recent purchases.
-          </p>
-          <div className="w-full mt-8">
-            <AgentInput variant="hero" onSubmit={(text) => agent.send(text)} />
-          </div>
-          <SuggestionPills suggestions={SUGGESTIONS} onPick={(s) => agent.send(s)} />
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="relative">
-      <div className="flex justify-end mb-2">
-        <NewConversationButton onClick={agent.newConversation} />
-      </div>
-      <div className="max-w-[720px] mx-auto pb-32">
-        <AgentConversation
-          messages={agent.messages}
-          activeTools={agent.activeTools}
-          hitl={agent.hitl}
-          onRespondHITL={agent.respondHITL}
-        />
-      </div>
-      <div className="sticky bottom-4 max-w-[720px] mx-auto">
-        <AgentInput variant="docked" onSubmit={(text) => agent.send(text)} />
+    <div className="flex gap-6 min-h-[640px]">
+      <ChatHistorySidebar
+        sessions={agent.sessions}
+        activeSessionId={agent.sessionId}
+        onSelect={agent.loadSession}
+        onNew={agent.newConversation}
+      />
+
+      <div className="flex-1 min-w-0 relative">
+        {empty ? (
+          <div className="relative overflow-hidden min-h-[560px] flex items-center justify-center">
+            <div
+              aria-hidden
+              className="absolute top-0 right-0 w-[420px] h-[420px] rounded-full bg-kraken/30 blur-3xl opacity-30 pointer-events-none"
+            />
+            <div
+              aria-hidden
+              className="absolute bottom-0 left-0 w-[420px] h-[420px] rounded-full bg-accent/20 blur-3xl opacity-30 pointer-events-none"
+            />
+            <div className="relative w-full max-w-[640px] flex flex-col items-center text-center px-6">
+              <div className="bg-kraken/10 p-3 rounded-2xl mb-6">
+                <Sparkles className="w-6 h-6 text-kraken" />
+              </div>
+              <h1 className="text-3xl font-semibold text-txt-primary tracking-tight">
+                How can I help with your portfolio?
+              </h1>
+              <p className="text-txt-muted mt-3 text-base">
+                Ask anything about your holdings, P&amp;L, or recent purchases.
+              </p>
+              <div className="w-full mt-8">
+                <AgentInput variant="hero" onSubmit={(text) => agent.send(text)} />
+              </div>
+              <SuggestionPills suggestions={SUGGESTIONS} onPick={(s) => agent.send(s)} />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="max-w-[720px] mx-auto pb-32">
+              <AgentConversation
+                messages={agent.messages}
+                activeTools={agent.activeTools}
+                hitl={agent.hitl}
+                onRespondHITL={agent.respondHITL}
+              />
+            </div>
+            <div className="sticky bottom-4 max-w-[720px] mx-auto">
+              <AgentInput variant="docked" onSubmit={(text) => agent.send(text)} />
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

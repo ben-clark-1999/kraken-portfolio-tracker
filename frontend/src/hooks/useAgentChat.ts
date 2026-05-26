@@ -18,6 +18,12 @@ function coerceContent(value: unknown): string {
   return ''
 }
 
+export interface PastSession {
+  id: string
+  title: string
+  last_active_at: string  // ISO 8601
+}
+
 interface UseAgentChatReturn {
   messages: AgentMessage[]
   activeTools: ToolActivity[]
@@ -25,9 +31,12 @@ interface UseAgentChatReturn {
   thinking: boolean
   connected: boolean
   sessionId: string | null
+  sessions: PastSession[]
   send: (content: string) => void
   respondHITL: (approved: boolean) => void
   newConversation: () => void
+  refreshSessions: () => Promise<void>
+  loadSession: (id: string) => void
 }
 
 export function useAgentChat(): UseAgentChatReturn {
@@ -37,6 +46,7 @@ export function useAgentChat(): UseAgentChatReturn {
   const [thinking, setThinking] = useState(false)
   const [connected, setConnected] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessions, setSessions] = useState<PastSession[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const currentAssistantId = useRef<string | null>(null)
 
@@ -65,6 +75,23 @@ export function useAgentChat(): UseAgentChatReturn {
     }
 
     wsRef.current = ws
+  }, [])
+
+  // ── Sessions list ────────────────────────────────────────────────
+
+  const refreshSessions = useCallback(async (): Promise<void> => {
+    try {
+      const res = await apiFetch(REHYDRATE_URL)
+      if (!res.ok) {
+        // 401 is already handled by apiFetch (dispatches UNAUTHORIZED_EVENT)
+        setSessions([])
+        return
+      }
+      const data = await res.json()
+      setSessions(data.sessions ?? [])
+    } catch {
+      setSessions([])
+    }
   }, [])
 
   // ── Message handling ─────────────────────────────────────────────
@@ -157,6 +184,8 @@ export function useAgentChat(): UseAgentChatReturn {
           )
         )
         currentAssistantId.current = null
+        // Refresh sessions — a title may have just been generated for this session
+        refreshSessions()
         break
 
       case 'error':
@@ -176,7 +205,7 @@ export function useAgentChat(): UseAgentChatReturn {
         wsRef.current?.send(JSON.stringify({ type: 'pong' } satisfies ClientMessage))
         break
     }
-  }, [])
+  }, [refreshSessions])
 
   // ── Actions ──────────────────────────────────────────────────────
 
@@ -207,6 +236,22 @@ export function useAgentChat(): UseAgentChatReturn {
     // Reconnect without session_id to get a new one
     wsRef.current?.close()
     connect()
+    // Refresh session list after starting a new conversation
+    refreshSessions()
+  }, [connect, refreshSessions])
+
+  const loadSession = useCallback((id: string) => {
+    if (id === localStorage.getItem(SESSION_KEY)) return
+    // Clear current conversation state
+    setMessages([])
+    setActiveTools([])
+    setHitl(null)
+    setThinking(false)
+    currentAssistantId.current = null
+    // Store the new session id and reconnect — session_resumed will rehydrate messages
+    localStorage.setItem(SESSION_KEY, id)
+    wsRef.current?.close()
+    connect(id)
   }, [connect])
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -214,10 +259,11 @@ export function useAgentChat(): UseAgentChatReturn {
   useEffect(() => {
     const storedSid = localStorage.getItem(SESSION_KEY)
     connect(storedSid || undefined)
+    refreshSessions()
     return () => {
       wsRef.current?.close()
     }
-  }, [connect])
+  }, [connect, refreshSessions])
 
   return {
     messages,
@@ -226,8 +272,11 @@ export function useAgentChat(): UseAgentChatReturn {
     thinking,
     connected,
     sessionId,
+    sessions,
     send,
     respondHITL,
     newConversation,
+    refreshSessions,
+    loadSession,
   }
 }
