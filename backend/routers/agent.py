@@ -61,6 +61,18 @@ async def list_agent_sessions(request: Request):
     return {"sessions": out}
 
 
+@router.delete("/sessions/{session_id}", dependencies=[Depends(require_auth)])
+async def delete_agent_session(session_id: str, request: Request):
+    """Permanently delete a conversation from the checkpointer."""
+    from backend.agent.checkpointer import delete_session
+
+    graph = request.app.state.agent_graph
+    checkpointer = graph.checkpointer
+    pool = checkpointer.conn
+    deleted = await delete_session(pool, session_id)
+    return {"session_id": session_id, "rows_deleted": deleted}
+
+
 @router.websocket("/chat")
 async def agent_chat(ws: WebSocket, session_id: str | None = Query(default=None)):
     """WebSocket endpoint for agent chat.

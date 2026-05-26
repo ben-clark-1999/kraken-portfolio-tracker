@@ -13,6 +13,11 @@ from backend.agent.agent_config import WS_HEARTBEAT_INTERVAL, WS_HEARTBEAT_TIMEO
 
 logger = logging.getLogger(__name__)
 
+# Tool names that are NOT real callable tools — LangChain's structured-output
+# wrapper surfaces these as synthetic tool_calls in AIMessageChunk, but no
+# matching ToolMessage ever arrives, so we must suppress tool_start for them.
+NON_TOOL_TOOL_CALLS: frozenset[str] = frozenset({"ClassifierOutput"})
+
 
 # ── Message factories ───────────────────────────────────────────────────
 
@@ -115,9 +120,12 @@ async def _stream_graph_response(ws: WebSocket, graph, session_id: str, input_da
                             await ws.send_json(make_token(text))
                     if hasattr(chunk, "tool_calls") and chunk.tool_calls:
                         for tc in chunk.tool_calls:
-                            tool_start_times[tc["name"]] = time.time()
+                            name = tc.get("name") or ""
+                            if not name or name in NON_TOOL_TOOL_CALLS:
+                                continue
+                            tool_start_times[name] = time.time()
                             await ws.send_json(
-                                make_tool_start(tc["name"], tc.get("args", {}))
+                                make_tool_start(name, tc.get("args", {}))
                             )
 
                 elif isinstance(chunk, ToolMessage):

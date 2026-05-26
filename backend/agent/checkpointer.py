@@ -78,6 +78,26 @@ async def list_session_ids(pool) -> list[tuple[str, str]]:
     return [(r[0], r[1]) for r in rows[:100]]
 
 
+async def delete_session(pool, thread_id: str) -> int:
+    """Delete all checkpoint rows for the given thread_id across all langgraph
+    checkpoint tables. Returns the total rows deleted across tables.
+
+    The langgraph postgres saver uses `checkpoints`, `checkpoint_blobs`, and
+    `checkpoint_writes`. All three are keyed by thread_id. We wipe all three
+    inside a single transaction so the delete is atomic.
+    """
+    deleted = 0
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+                await cur.execute(
+                    f"DELETE FROM {table} WHERE thread_id = %s",
+                    (thread_id,),
+                )
+                deleted += cur.rowcount or 0
+    return deleted
+
+
 def extract_messages(messages: list) -> list[dict]:
     """Convert LangChain message objects to dicts for REST rehydration.
 
