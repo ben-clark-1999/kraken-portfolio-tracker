@@ -37,6 +37,20 @@ def make_token(content: str) -> dict:
     return {"type": "token", "content": content}
 
 
+def _flatten_chunk_content(content) -> str:
+    # ChatAnthropic streams content as a list of blocks (text + tool_use)
+    # when a chunk contains both — same shape graph.py:341 handles for the
+    # strategy-loop path. The frontend's <Markdown> chokes on non-strings.
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        )
+    return str(content)
+
+
 def make_tool_start(tool: str, params: dict) -> dict:
     return {"type": "tool_start", "tool": tool, "params": params}
 
@@ -96,7 +110,9 @@ async def _stream_graph_response(ws: WebSocket, graph, session_id: str, input_da
 
                 if isinstance(chunk, AIMessageChunk):
                     if chunk.content:
-                        await ws.send_json(make_token(chunk.content))
+                        text = _flatten_chunk_content(chunk.content)
+                        if text:
+                            await ws.send_json(make_token(text))
                     if hasattr(chunk, "tool_calls") and chunk.tool_calls:
                         for tc in chunk.tool_calls:
                             tool_start_times[tc["name"]] = time.time()

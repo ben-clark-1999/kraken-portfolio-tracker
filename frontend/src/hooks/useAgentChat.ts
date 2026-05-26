@@ -91,6 +91,9 @@ export function useAgentChat(): UseAgentChatReturn {
 
       case 'token': {
         setThinking(false)
+        // Defensive: backend should always send a string, but a non-string
+        // here would crash <Markdown> downstream — drop it instead.
+        if (typeof msg.content !== 'string' || msg.content.length === 0) break
         setMessages((prev) => {
           const last = prev[prev.length - 1]
           if (last && last.id === currentAssistantId.current && last.streaming) {
