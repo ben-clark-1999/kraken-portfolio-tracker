@@ -7,9 +7,17 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth.dependencies import require_auth
+from backend.config import settings
 from backend.error_handlers import handle_uncaught_exception
 from backend.middleware.request_id import RequestIDMiddleware
 from backend.scheduler import start_scheduler, stop_scheduler
+
+# pydantic-settings loads ANTHROPIC_API_KEY from .env into `settings` but does
+# not propagate it to os.environ. ChatAnthropic() reads from os.environ, so
+# without this bridge every LLM strategy fire raised an auth TypeError and
+# auto-paused itself. Mirrors backend/tests/conftest.py.
+if settings.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
+    os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
 
 logger = logging.getLogger(__name__)
 
