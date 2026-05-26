@@ -53,7 +53,28 @@ Edit this file and write a short bulleted list under the heading **"Audit findin
 
 ### Audit findings
 
-*(Filled in during Step 2 — leave the section header here; do not delete it.)*
+Walked the current `/crypto` page (`CryptoPage.tsx` + composed components) against the `redesign-existing-projects` checklist. Findings ordered by severity for this redesign:
+
+**P0 — already addressed in the spec:**
+- Markdown tables emitted by the agent fail to render — `react-markdown` is loaded without `remark-gfm`. Visible as raw `| Asset | Qty | …|` pipe text in the right rail. Fixed by Task 2.
+- Right-rail `AgentPanel` (`w-96` ≈ 384px) is the direct cause of the cramped chat. Fixed by promoting AI chat to its own full-width tab (Tasks 11, 12).
+- `DCAHistoryTable` has no empty state — renders an empty `<tbody>` when entries are zero. Fixed by Task 7 (`PurchasesTab` empty placeholder).
+
+**P1 — to apply during implementation:**
+- **Tabular-nums inconsistency.** Big balance ($6,131.63), DCA table costs, and chart axis labels should all use `tabular-nums`. Task 6 (new `DCAHistoryTable`) and Task 11 (AskTab table styling via the markdown `td` component) already include this; double-check `ChartCard`'s axis labels look right.
+- **Two accent colors active** (kraken purple + accent teal). Per the audit, "pick one." Justified exception here because the teal is the data-line colour on the chart and the purple is brand/action — they don't compete for hierarchy. Keep both; do not introduce a third accent.
+
+**P2 — out of scope but worth noting:**
+- **Default browser font stack.** No custom font is loaded; the project uses Tailwind's `font-sans` (system stack). Geist or similar would lift premium-ness across the whole app — but adding it touches every page. Defer to a separate decision after this redesign ships.
+- **Existing `ChartCard` range toggle (`1W/1M/3M/1Y/ALL`) buttons lack a visible focus ring.** Out of scope (this redesign doesn't touch ChartCard). Note for a future polish pass.
+- **Tinted shadows on cards.** Current cards use border-only, no shadow. Border-only works for this dashboard; not a problem. Could add subtle inset highlights later if cards start to feel flat.
+
+**Anti-patterns banned for this redesign (declared up-front):**
+- AI-purple gradient mesh as background decoration. The new AskTab backdrop blurs use kraken (`bg-kraken/30`) and accent (`bg-accent/20`) tokens at `opacity-30 blur-3xl` — not the generic AI-blue gradient slab.
+- Centered hero over dark mesh on every empty state. The AskTab hero is the only hero on the page; other tabs are content-first.
+- Three-equal-card feature rows. Not used here.
+- Inter + slate-900. Not used.
+- Instant transitions. All interactive elements get `duration-200` or longer.
 
 - [ ] **Step 3: Commit the audit**
 
