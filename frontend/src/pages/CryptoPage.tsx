@@ -15,7 +15,7 @@ interface Props {
 
 export default function CryptoPage({ onSignedOut }: Props) {
   const data = useCryptoData()
-  const { active } = useActiveTab()
+  const { active, setActive } = useActiveTab()
   const [serverError, setServerError] = useState<ServerErrorDetail | null>(null)
 
   useEffect(() => {
@@ -25,6 +25,19 @@ export default function CryptoPage({ onSignedOut }: Props) {
     window.addEventListener(SERVER_ERROR_EVENT, handle)
     return () => window.removeEventListener(SERVER_ERROR_EVENT, handle)
   }, [])
+
+  useEffect(() => {
+    // ⌘K / Ctrl+K jumps to the Ask AI tab. The hero input there has
+    // autoFocus, so this both navigates and gives focus in one keypress.
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setActive('ask')
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [setActive])
 
   return (
     <div className="min-h-screen bg-surface text-txt-primary font-sans">
