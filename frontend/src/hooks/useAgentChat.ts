@@ -5,6 +5,19 @@ import { apiFetch } from '../api/client'
 const SESSION_KEY = 'agent_session_id'
 const REHYDRATE_URL = '/api/agent/sessions'
 
+// Anthropic content can arrive as a list of blocks (text + tool_use); the
+// backend flattens, but a stray non-string slipping through here would
+// crash <Markdown>. Coerce defensively.
+function coerceContent(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    return value
+      .map((b) => (b && typeof b === 'object' && 'text' in b ? String((b as { text: unknown }).text ?? '') : ''))
+      .join('')
+  }
+  return ''
+}
+
 interface UseAgentChatReturn {
   messages: AgentMessage[]
   activeTools: ToolActivity[]
@@ -68,10 +81,10 @@ export function useAgentChat(): UseAgentChatReturn {
             .then((r) => r.json())
             .then((data) => {
               const hydrated: AgentMessage[] = data.messages.map(
-                (m: { role: string; content: string }, i: number) => ({
+                (m: { role: string; content: unknown }, i: number) => ({
                   id: `rehydrated-${i}`,
                   role: m.role as 'user' | 'assistant',
-                  content: m.content,
+                  content: coerceContent(m.content),
                   streaming: false,
                 })
               )

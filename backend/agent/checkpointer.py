@@ -42,6 +42,20 @@ async def create_checkpointer() -> AsyncPostgresSaver:
     return checkpointer
 
 
+def _flatten_content(content) -> str:
+    # AIMessage.content from a checkpoint can be a list of blocks
+    # (text + tool_use) when the model emitted both — same shape
+    # graph.py:341 and websocket_handler.py handle. Extract text only.
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        )
+    return str(content)
+
+
 def extract_messages(messages: list) -> list[dict]:
     """Convert LangChain message objects to dicts for REST rehydration.
 
@@ -51,7 +65,7 @@ def extract_messages(messages: list) -> list[dict]:
     result = []
     for msg in messages:
         if isinstance(msg, HumanMessage):
-            result.append({"role": "user", "content": msg.content})
+            result.append({"role": "user", "content": _flatten_content(msg.content)})
         elif isinstance(msg, AIMessage):
-            result.append({"role": "assistant", "content": msg.content})
+            result.append({"role": "assistant", "content": _flatten_content(msg.content)})
     return result

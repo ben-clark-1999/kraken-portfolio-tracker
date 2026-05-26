@@ -29,7 +29,7 @@ export default function AgentMessage({ message }: Props) {
           ),
         }}
       >
-        {message.content}
+        {typeof message.content === 'string' ? message.content : ''}
       </Markdown>
       {message.streaming && (
         <span className="inline-block w-1.5 h-4 bg-txt-muted animate-pulse-subtle ml-0.5 align-text-bottom" />
