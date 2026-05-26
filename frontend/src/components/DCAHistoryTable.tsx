@@ -1,5 +1,5 @@
 import type { DCAEntry } from '../types'
-import { formatAUD, getPnlClass } from '../utils/pnl'
+import { formatAUD } from '../utils/pnl'
 
 interface Props {
   entries: DCAEntry[]
@@ -7,19 +7,16 @@ interface Props {
 
 export default function DCAHistoryTable({ entries }: Props) {
   return (
-    <div className="bg-gray-800 rounded-xl p-6">
-      <h2 className="text-lg font-semibold text-white mb-4">DCA History</h2>
+    <div className="bg-surface-raised border border-surface-border rounded-xl overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="text-gray-400 border-b border-gray-700">
-              <th className="text-left pb-3">Date</th>
-              <th className="text-left pb-3">Asset</th>
-              <th className="text-right pb-3">Qty</th>
-              <th className="text-right pb-3">Buy Price</th>
-              <th className="text-right pb-3">Cost Paid</th>
-              <th className="text-right pb-3">Current Value</th>
-              <th className="text-right pb-3">P&L</th>
+          <thead className="bg-surface/40">
+            <tr className="text-txt-muted">
+              <th className="text-left text-xs uppercase tracking-wider font-medium px-6 py-3">Date</th>
+              <th className="text-left text-xs uppercase tracking-wider font-medium px-6 py-3">Asset</th>
+              <th className="text-right text-xs uppercase tracking-wider font-medium px-6 py-3">Quantity</th>
+              <th className="text-right text-xs uppercase tracking-wider font-medium px-6 py-3">Buy Price</th>
+              <th className="text-right text-xs uppercase tracking-wider font-medium px-6 py-3">Cost Paid</th>
             </tr>
           </thead>
           <tbody>
@@ -29,15 +26,20 @@ export default function DCAHistoryTable({ entries }: Props) {
                 dateStyle: 'medium',
               })
               return (
-                <tr key={e.lot_id} className="border-b border-gray-700 hover:bg-gray-700/50">
-                  <td className="py-3 text-gray-300">{date}</td>
-                  <td className="py-3 font-medium text-white">{e.asset}</td>
-                  <td className="py-3 text-right text-gray-300">{e.quantity.toFixed(4)}</td>
-                  <td className="py-3 text-right text-gray-300">{formatAUD(e.cost_per_unit_aud)}</td>
-                  <td className="py-3 text-right text-gray-300">{formatAUD(e.cost_aud)}</td>
-                  <td className="py-3 text-right text-white font-medium">{formatAUD(e.current_value_aud)}</td>
-                  <td className={`py-3 text-right font-medium ${getPnlClass(e.unrealised_pnl_aud)}`}>
-                    {formatAUD(e.unrealised_pnl_aud)}
+                <tr
+                  key={e.lot_id}
+                  className="border-t border-surface-border/60 hover:bg-surface-hover/40 transition-colors"
+                >
+                  <td className="px-6 py-3 text-txt-secondary">{date}</td>
+                  <td className="px-6 py-3 font-medium text-txt-primary">{e.asset}</td>
+                  <td className="px-6 py-3 text-right text-txt-secondary tabular-nums">
+                    {e.quantity.toFixed(4)}
+                  </td>
+                  <td className="px-6 py-3 text-right text-txt-secondary tabular-nums">
+                    {formatAUD(e.cost_per_unit_aud)}
+                  </td>
+                  <td className="px-6 py-3 text-right text-txt-primary font-medium tabular-nums">
+                    {formatAUD(e.cost_aud)}
                   </td>
                 </tr>
               )
