@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import AgentMessage from './AgentMessage'
 import AgentToolStatus from './AgentToolStatus'
 import AgentHITL from './AgentHITL'
@@ -11,6 +12,13 @@ interface Props {
 }
 
 export default function AgentConversation({ messages, activeTools, hitl, onRespondHITL }: Props) {
+  const endRef = useRef<HTMLDivElement>(null)
+  const lastContent = messages[messages.length - 1]?.content ?? ''
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages.length, lastContent])
+
   return (
     <div className="space-y-6">
       {messages.map((m) => (
@@ -24,6 +32,7 @@ export default function AgentConversation({ messages, activeTools, hitl, onRespo
         </div>
       )}
       {hitl?.pending && <AgentHITL hitl={hitl} onRespond={onRespondHITL} />}
+      <div ref={endRef} aria-hidden />
     </div>
   )
 }
