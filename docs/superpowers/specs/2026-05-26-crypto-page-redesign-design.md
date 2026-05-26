@@ -226,6 +226,34 @@ After implementation, ask the agent a question that exercises every construct. T
 - No backend changes other than the existing `POST /api/sync` being called by the new button.
 - No new sidebar items.
 
+## Anti-slop discipline (skills routing)
+
+This redesign will be executed through a chain of skills explicitly chosen against AI-design tells, in this order:
+
+1. **`redesign-existing-projects`** — primary driver. Audit-first scan of the current Crypto page against its checklist (typography, colour/surfaces, layout, interactivity, content). The audit findings inform the implementation tasks before any code is written.
+2. **`impeccable craft`** — project's standing rule for frontend work. Generates component code that's aware of the existing design tokens in `frontend/tailwind.config.js` (kraken/accent/surface/txt families).
+3. **`design-taste-frontend`** — applied as discipline only (its brief excludes dashboards). The relevant rules: state the "design read" up front, avoid AI-purple gradient defaults, no centered-hero-over-mesh, no three-equal-card rows, no Inter+slate-900.
+4. **`critique`** — after the build, run the persona-based + anti-pattern critique to catch any remaining slop.
+5. **`polish`** — final alignment / spacing / micro-detail pass before commit.
+
+### Design read (declared up front, per `design-taste-frontend` §0.B)
+
+*"Reading this as: an existing data-rich crypto portfolio dashboard for a single technical user, with a Linear-style restrained product language, leaning toward the project's existing dark surface tokens + kraken-purple accent + accent-teal highlight. Dials: VARIANCE 5, MOTION 4, DENSITY 5 (dashboard preset, not landing-page maximal)."*
+
+### Explicit anti-patterns banned for this work
+
+Cribbed from the audit skills, narrowed to ones that genuinely apply to a dashboard:
+
+- AI-purple gradient mesh as decoration. The radial blurs behind the Ask AI empty state are subtle (`opacity-30` `blur-3xl`) and use the project's existing tokens, not generic AI purple.
+- Three-equal feature-card row. The four tabs are not card-grids; they're underline tabs.
+- Pure `#000000` backgrounds. Already using `#0f0e14` surface — keep.
+- Browser-default fonts. Evaluate adding `Geist` as the body font during implementation (Inter is also banned per the audit; we currently use neither but the default may resolve to a stack we want to override). Decision deferred to implementation.
+- Generic `box-shadow` on cards. Use tinted, low-opacity shadows that respect the surface hue (e.g. `shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_8px_24px_-12px_rgba(123,97,255,0.25)]`).
+- Hollow microcopy ("Lorem ipsum", generic placeholder names). All copy in this redesign is honest and specific to the user's data.
+- Empty states that are just blank. The Previous Purchases empty state and Ask AI empty state are both composed.
+- Symmetrical 50/50 vertical padding. Bottom padding slightly larger than top for optical balance.
+- Instant transitions. All interactive elements get a 200ms ease.
+
 ## Implementation order
 
 1. Extract `useCryptoData` hook (no behaviour change yet) — verify Balance still works.
