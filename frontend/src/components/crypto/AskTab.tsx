@@ -23,6 +23,7 @@ export default function AskTab() {
         activeSessionId={agent.sessionId}
         onSelect={agent.loadSession}
         onNew={agent.newConversation}
+        onDelete={agent.deleteSession}
       />
 
       <div className="flex-1 min-w-0 relative">
@@ -59,6 +60,7 @@ export default function AskTab() {
                 messages={agent.messages}
                 activeTools={agent.activeTools}
                 hitl={agent.hitl}
+                thinking={agent.thinking}
                 onRespondHITL={agent.respondHITL}
               />
             </div>

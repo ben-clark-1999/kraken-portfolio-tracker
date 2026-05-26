@@ -15,6 +15,7 @@ vi.mock('../../hooks/useAgentChat', () => ({
     sessions: [],
     refreshSessions: vi.fn(),
     loadSession: vi.fn(),
+    deleteSession: vi.fn(),
     send,
     respondHITL: vi.fn(),
     newConversation,

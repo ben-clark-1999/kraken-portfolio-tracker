@@ -37,6 +37,7 @@ interface UseAgentChatReturn {
   newConversation: () => void
   refreshSessions: () => Promise<void>
   loadSession: (id: string) => void
+  deleteSession: (id: string) => Promise<void>
 }
 
 export function useAgentChat(): UseAgentChatReturn {
@@ -183,6 +184,7 @@ export function useAgentChat(): UseAgentChatReturn {
             m.id === currentAssistantId.current ? { ...m, streaming: false } : m
           )
         )
+        setActiveTools([])
         currentAssistantId.current = null
         // Refresh sessions — a title may have just been generated for this session
         refreshSessions()
@@ -254,6 +256,21 @@ export function useAgentChat(): UseAgentChatReturn {
     connect(id)
   }, [connect])
 
+  const deleteSession = useCallback(async (id: string): Promise<void> => {
+    try {
+      const res = await apiFetch(`${REHYDRATE_URL}/${id}`, { method: 'DELETE' })
+      if (!res.ok) return
+    } catch {
+      return
+    }
+    // If the deleted one was active, start a fresh conversation.
+    if (id === localStorage.getItem(SESSION_KEY)) {
+      newConversation()
+    } else {
+      await refreshSessions()
+    }
+  }, [newConversation, refreshSessions])
+
   // ── Lifecycle ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -278,5 +295,6 @@ export function useAgentChat(): UseAgentChatReturn {
     newConversation,
     refreshSessions,
     loadSession,
+    deleteSession,
   }
 }

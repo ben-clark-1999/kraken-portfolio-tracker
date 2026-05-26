@@ -1,4 +1,4 @@
-import { Plus, MessageSquare } from 'lucide-react'
+import { Plus, MessageSquare, Trash2 } from 'lucide-react'
 import type { PastSession } from '../hooks/useAgentChat'
 
 interface Props {
@@ -6,6 +6,7 @@ interface Props {
   activeSessionId: string | null
   onSelect: (id: string) => void
   onNew: () => void
+  onDelete: (id: string) => void
 }
 
 interface Group { label: string; sessions: PastSession[] }
@@ -31,7 +32,7 @@ function groupSessions(sessions: PastSession[]): Group[] {
     .map(([label, list]) => ({ label, sessions: list }))
 }
 
-export default function ChatHistorySidebar({ sessions, activeSessionId, onSelect, onNew }: Props) {
+export default function ChatHistorySidebar({ sessions, activeSessionId, onSelect, onNew, onDelete }: Props) {
   const groups = groupSessions(sessions)
   return (
     <aside className="w-60 shrink-0 border-r border-surface-border flex flex-col h-full">
@@ -58,12 +59,12 @@ export default function ChatHistorySidebar({ sessions, activeSessionId, onSelect
               {g.sessions.map((s) => {
                 const isActive = s.id === activeSessionId
                 return (
-                  <li key={s.id}>
+                  <li key={s.id} className="group/row relative">
                     <button
                       type="button"
                       onClick={() => onSelect(s.id)}
                       className={[
-                        'w-full text-left px-2 py-1.5 rounded text-sm flex items-start gap-2',
+                        'w-full text-left pl-2 pr-8 py-1.5 rounded text-sm flex items-start gap-2',
                         'transition-colors duration-200',
                         isActive
                           ? 'bg-surface-raised text-txt-primary'
@@ -72,6 +73,17 @@ export default function ChatHistorySidebar({ sessions, activeSessionId, onSelect
                     >
                       <MessageSquare className="w-3.5 h-3.5 mt-0.5 shrink-0 text-txt-muted" />
                       <span className="truncate">{s.title}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Delete conversation"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDelete(s.id)
+                      }}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/row:opacity-100 text-txt-muted hover:text-loss hover:bg-surface-hover transition-opacity duration-150"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </li>
                 )
