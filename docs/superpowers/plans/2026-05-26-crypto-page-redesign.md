@@ -1476,7 +1476,33 @@ Edit this file and write a short bulleted list under the **"Critique findings"**
 
 ### Critique findings
 
-*(Filled in during Step 2 — leave this header here; do not delete it.)*
+**Automated detector (`npx impeccable --json --fast`)** against all new files (`frontend/src/components/crypto/*`, `AgentMessage.tsx`, `AgentInput.tsx`, `AgentConversation.tsx`, `SuggestionPills.tsx`, `CryptoPage.tsx`) returned `[]` — zero anti-pattern hits. Clean automated pass.
+
+**LLM design-director review** of the rebuilt UI source:
+
+**Anti-pattern verdict:** No AI-slop tells found. Single restrained accent (kraken-purple) is used for active tab + brand actions; accent-teal is reserved for data (chart line). Backdrop blurs in `AskTab` empty state use brand tokens at `opacity-30 blur-3xl` — not the generic AI-blue gradient slab. No three-equal feature cards. No centered-hero-over-mesh on every screen. Underline tabs, not pill rows. Empty states are composed, not blank.
+
+**Nielsen heuristics (gut scoring):** ~29/40. Strong on aesthetic, consistency, and recognition; weak on flexibility (no keyboard shortcuts) and help/documentation.
+
+**P1 findings to fix in Task 14:**
+
+1. **`⌘K` keyboard shortcut is dead.** The previous top-bar `<AgentInput>` (variant `topbar`) registered a global Cmd/Ctrl+K listener. After T12 removed the top-bar input, only the `hero` and `docked` variants render — and they intentionally skip the shortcut. Net effect: power users who learned Cmd+K to jump to chat now get nothing. **Fix:** in `CryptoPage.tsx`, register a global Cmd/Ctrl+K listener that switches to `?tab=ask` and (via a small ref-passing mechanism or just navigation) focuses the input. Simplest path: just navigate to the Ask AI tab on Cmd+K and let the hero input auto-focus on mount.
+
+2. **`AgentConversation` does not auto-scroll to the latest message.** A long answer streams in but the user has to scroll manually. **Fix:** add a `useEffect` that scrolls a ref into view when `messages.length` changes or when the last message's content grows. Cheap to add.
+
+3. **Tab bar overflows on narrow viewports.** Four labels (`Balance · Asset Breakdown · Previous Purchases · Ask AI`) with `gap-6` push past the right edge under ~640px. **Fix:** add `overflow-x-auto` + `whitespace-nowrap` to the tablist container, and a thin scroll mask (or simply `scrollbar-thin`).
+
+4. **`AskTab` empty-state hero input doesn't auto-focus.** The user lands on the tab and has to click into the input. **Fix:** add `autoFocus` to the input element when `variant === 'hero'` (gate it so the topbar variant doesn't surprise-focus on page load).
+
+**P2 — out of scope for this redesign but worth recording:**
+- Default browser font stack (already in audit findings — separate decision).
+- `SuggestionPills` could fade out / disable after a click while the assistant is responding. Optional polish.
+- `AgentMessage` user-message label "You said" could be more conversational ("You") — copy nit, not worth churning on.
+
+**Persona red flags:**
+
+- **Power user (Alex):** Cmd+K dead (fixed by P1 #1). No other tab-switch shortcuts but acceptable for v1.
+- **First-time user (Jordan):** Sees Balance + chart on landing — clear. Tab labels plain-English. "Previous Purchases" is intuitively clearer than the old "DCA History". Suggestion pills on the Ask AI empty state give them a starting point. No red flags found.
 
 - [ ] **Step 3: Commit the findings**
 
