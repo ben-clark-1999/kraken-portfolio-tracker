@@ -105,6 +105,7 @@ export default function AgentInput({
       <input
         ref={inputRef}
         type="text"
+        autoFocus={variant === 'hero'}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onFocus={() => {
