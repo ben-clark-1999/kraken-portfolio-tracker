@@ -27,6 +27,40 @@ async def get_session_messages(session_id: str, request: Request):
     return {"session_id": session_id, "messages": messages}
 
 
+@router.get("/sessions", dependencies=[Depends(require_auth)])
+async def list_agent_sessions(request: Request):
+    """List past conversations (most recent first) for the sidebar."""
+    from datetime import datetime, timezone
+    from backend.agent.checkpointer import list_session_ids, extract_messages
+
+    graph = request.app.state.agent_graph
+    checkpointer = graph.checkpointer  # AsyncPostgresSaver
+    pool = checkpointer.conn  # AsyncConnectionPool
+
+    rows = await list_session_ids(pool)
+    out = []
+    for thread_id, _checkpoint_id in rows:
+        config = {"configurable": {"thread_id": thread_id}}
+        state = await graph.aget_state(config)
+        if not state.values:
+            continue
+        msgs = extract_messages(state.values.get("messages", []))
+        first_user = next((m for m in msgs if m["role"] == "user"), None)
+        if not first_user:
+            continue
+        title = first_user["content"][:60].strip() or "Untitled conversation"
+        # Derive a timestamp from state.created_at if available; else now
+        last_active = getattr(state, "created_at", None)
+        if last_active is None:
+            last_active = datetime.now(tz=timezone.utc).isoformat()
+        out.append({
+            "id": thread_id,
+            "title": title,
+            "last_active_at": last_active,
+        })
+    return {"sessions": out}
+
+
 @router.websocket("/chat")
 async def agent_chat(ws: WebSocket, session_id: str | None = Query(default=None)):
     """WebSocket endpoint for agent chat.

@@ -56,6 +56,28 @@ def _flatten_content(content) -> str:
     return str(content)
 
 
+async def list_session_ids(pool) -> list[tuple[str, str]]:
+    """Returns [(thread_id, latest_checkpoint_id), ...] sorted by checkpoint_id desc.
+
+    Reads directly from the langgraph checkpoints table — there's no public
+    API on AsyncPostgresSaver for listing distinct threads. Limited to the
+    main namespace (checkpoint_ns = '').
+    """
+    sql = """
+        SELECT DISTINCT ON (thread_id) thread_id, checkpoint_id
+        FROM checkpoints
+        WHERE checkpoint_ns = ''
+        ORDER BY thread_id, checkpoint_id DESC
+    """
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(sql)
+            rows = await cur.fetchall()
+    # Re-sort by checkpoint_id desc across all threads (so most-recent thread first)
+    rows.sort(key=lambda r: r[1], reverse=True)
+    return [(r[0], r[1]) for r in rows[:100]]
+
+
 def extract_messages(messages: list) -> list[dict]:
     """Convert LangChain message objects to dicts for REST rehydration.
 
