@@ -67,21 +67,22 @@ const components = {
 }
 
 export default function AgentMessage({ message }: Props) {
+  const safe = typeof message.content === 'string' ? message.content : ''
+
   if (message.role === 'user') {
     return (
-      <p className="text-xs uppercase tracking-wider text-txt-muted font-medium mb-1">
-        You said
-        <span className="block normal-case tracking-normal text-[15px] text-txt-secondary mt-1 font-sans">
-          {typeof message.content === 'string' ? message.content : ''}
-        </span>
-      </p>
+      <div className="flex justify-end">
+        <div className="max-w-[80%] rounded-2xl bg-surface-raised border border-surface-border px-4 py-2.5 text-[15px] leading-relaxed text-txt-primary whitespace-pre-wrap break-words">
+          {safe}
+        </div>
+      </div>
     )
   }
 
   return (
     <div className="text-[15px] leading-relaxed text-txt-primary font-sans">
       <Markdown remarkPlugins={[remarkGfm]} components={components}>
-        {typeof message.content === 'string' ? message.content : ''}
+        {safe}
       </Markdown>
       {message.streaming && (
         <span className="inline-block w-1.5 h-4 bg-txt-muted animate-pulse-subtle ml-0.5 align-text-bottom" />
