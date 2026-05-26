@@ -29,7 +29,7 @@ export default function CryptoTabBar() {
     <div
       role="tablist"
       aria-label="Crypto sections"
-      className="border-b border-surface-border flex items-end gap-6"
+      className="border-b border-surface-border flex items-end gap-6 overflow-x-auto whitespace-nowrap"
     >
       {TAB_IDS.map((t) => {
         const isActive = t.id === active
