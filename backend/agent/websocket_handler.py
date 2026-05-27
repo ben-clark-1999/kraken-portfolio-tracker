@@ -220,6 +220,13 @@ async def agent_chat_endpoint(ws: WebSocket, graph, session_id: str | None = Non
                 resume_input = Command(resume=approved)
                 if approved:
                     await ws.send_json(make_agent_thinking())
+                else:
+                    # The graph appends a cancel AIMessage to state for context,
+                    # but it isn't streamed through the messages channel — surface
+                    # it explicitly so the user sees acknowledgement.
+                    await ws.send_json(make_token(
+                        "OK — cancelled. Ask me something else when you're ready."
+                    ))
                 await _stream_graph_response(ws, graph, session_id, resume_input)
 
     except WebSocketDisconnect:
