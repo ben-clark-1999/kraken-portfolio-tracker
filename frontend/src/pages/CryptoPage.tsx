@@ -5,15 +5,10 @@ import BalanceTab from '../components/crypto/BalanceTab'
 import AssetsTab from '../components/crypto/AssetsTab'
 import PurchasesTab from '../components/crypto/PurchasesTab'
 import AskTab from '../components/crypto/AskTab'
-import SignOutButton from '../components/SignOutButton'
 import ErrorBanner from '../components/ErrorBanner'
 import { SERVER_ERROR_EVENT, type ServerErrorDetail } from '../api/client'
 
-interface Props {
-  onSignedOut: () => void
-}
-
-export default function CryptoPage({ onSignedOut }: Props) {
+export default function CryptoPage() {
   const data = useCryptoData()
   const { active, setActive } = useActiveTab()
   const [serverError, setServerError] = useState<ServerErrorDetail | null>(null)
@@ -41,12 +36,6 @@ export default function CryptoPage({ onSignedOut }: Props) {
 
   return (
     <div className="min-h-screen bg-surface text-txt-primary font-sans">
-      <div className="px-8 pt-6">
-        <div className="w-full max-w-[1600px] mx-auto flex items-center justify-end">
-          <SignOutButton onSignedOut={onSignedOut} />
-        </div>
-      </div>
-
       {serverError && (
         <ErrorBanner
           detail={serverError}

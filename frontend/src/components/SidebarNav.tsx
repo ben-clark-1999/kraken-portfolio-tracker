@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { Layers, Coins, Wallet, Trophy, type LucideIcon } from 'lucide-react'
+import SignOutButton from './SignOutButton'
 
 interface Route {
   to: string
@@ -15,7 +16,11 @@ const ROUTES: Route[] = [
   { to: '/strategies', label: 'Strategies', Icon: Trophy, hint: 'Paper-trading sandbox' },
 ]
 
-export default function SidebarNav() {
+interface Props {
+  onSignedOut: () => void
+}
+
+export default function SidebarNav({ onSignedOut }: Props) {
   return (
     <nav
       aria-label="Primary"
@@ -73,12 +78,13 @@ export default function SidebarNav() {
         ))}
       </div>
 
-      <div className="mt-auto px-4 pb-4 pt-4 border-t border-surface-border/60">
+      <div className="mt-auto px-4 pb-4 pt-4 border-t border-surface-border/60 flex items-center justify-between gap-3">
         <p className="text-[10px] font-mono tracking-wide text-txt-muted uppercase leading-tight">
           Portfolio
           <br />
           <span className="text-txt-secondary normal-case tracking-tight">tracker</span>
         </p>
+        <SignOutButton onSignedOut={onSignedOut} />
       </div>
     </nav>
   )

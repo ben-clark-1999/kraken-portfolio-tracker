@@ -40,11 +40,11 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AppLayout>
+      <AppLayout onSignedOut={() => setAuth('unauthenticated')}>
         <Routes>
           <Route path="/" element={<Navigate to="/combined" replace />} />
           <Route path="/combined" element={<CombinedPage />} />
-          <Route path="/crypto" element={<CryptoPage onSignedOut={() => setAuth('unauthenticated')} />} />
+          <Route path="/crypto" element={<CryptoPage />} />
           <Route path="/up" element={<UpPage />} />
           <Route path="/strategies" element={<StrategiesPage />} />
           <Route path="*" element={<Navigate to="/combined" replace />} />
