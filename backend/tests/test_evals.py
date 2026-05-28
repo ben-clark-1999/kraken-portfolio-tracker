@@ -14,15 +14,20 @@ from backend.evals.runner import (
 @pytest.mark.asyncio
 async def test_full_eval_suite():
     """Run the complete golden set against the real agent graph."""
-    # Build the graph the same way main.py does, sharing tools/checkpointer.
-    from backend.agent.checkpointer import create_checkpointer
+    # Use an in-memory checkpointer. Multi-turn linking inside this run still
+    # works because the saver lives for the lifetime of the test, but nothing
+    # leaks into the production Postgres `checkpoints` table — which the chat
+    # sidebar reads from. Previously this used create_checkpointer() and every
+    # eval run planted ~50 fake "sessions" in the UI.
+    from langgraph.checkpoint.memory import MemorySaver
+
     from backend.agent.graph import build_graph
     from backend.agent.tools import MCPToolManager
 
     tool_manager = MCPToolManager()
     tools = await tool_manager.start()
     try:
-        checkpointer = await create_checkpointer()
+        checkpointer = MemorySaver()
         graph = build_graph(tools, checkpointer)
 
         queries = load_golden_set()
