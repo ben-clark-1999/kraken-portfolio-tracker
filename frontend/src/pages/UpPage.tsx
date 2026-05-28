@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import AccountList from '../components/up/AccountList'
-import TransactionList from '../components/up/TransactionList'
-import SpendingDonut from '../components/up/SpendingDonut'
 import SyncStatusBanner from '../components/up/SyncStatusBanner'
-import RangePicker, { type Range, RANGE_DAYS } from '../components/combined/RangePicker'
-import RecurringList from '../components/up/RecurringList'
+import UpTabBar, { useActiveUpTab } from '../components/up/UpTabBar'
+import BalanceTab from '../components/up/BalanceTab'
+import SpendingTab from '../components/up/SpendingTab'
+import TransactionsTab from '../components/up/TransactionsTab'
+import AskTab from '../components/up/AskTab'
+import { type Range, RANGE_DAYS } from '../components/combined/RangePicker'
 import { useUpSyncStatus } from '../hooks/useUpSyncStatus'
 import {
   fetchAccounts, fetchTransactions, fetchSpendingSummary, fetchRecurring,
@@ -32,17 +33,9 @@ const RANGE_LABELS: Record<Range, string> = {
   ALL: 'all time',
 }
 
-function fmt(n: number): string {
-  return `$${n.toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
-}
-
-function fmtSigned(n: number): string {
-  const sign = n < 0 ? '−' : '+'
-  return `${sign}$${Math.abs(n).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
-}
-
 export default function UpPage() {
   const sync = useUpSyncStatus()
+  const { active, setActive } = useActiveUpTab()
   const [accounts, setAccounts] = useState<UpAccount[]>([])
   const [recurring, setRecurring] = useState<RecurringCharge[]>([])
   const [transactions, setTransactions] = useState<UpTransaction[]>([])
@@ -86,144 +79,65 @@ export default function UpPage() {
     return () => { cancelled = true }
   }, [since, until, sync?.state])
 
-  const totalCash = useMemo(
-    () => accounts.reduce((s, a) => s + a.balance_value, 0),
-    [accounts],
-  )
-
-  const flow = useMemo(() => {
-    let income = 0, expense = 0
-    for (const t of transactions) {
-      if (t.amount_value >= 0) income += t.amount_value
-      else expense += Math.abs(t.amount_value)
+  // ⌘K / Ctrl+K jumps straight to the Ask AI tab.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setActive('ask')
+      }
     }
-    return { income, expense, net: income - expense }
-  }, [transactions])
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [setActive])
+
+  const rangeLabel = RANGE_LABELS[range]
 
   return (
     <main className="min-h-screen bg-surface text-txt-primary font-sans">
-      <div className="max-w-3xl mx-auto px-6">
-
+      <div className="w-full max-w-[1600px] mx-auto px-8 pt-6">
         {sync && sync.state !== 'ready' && (
-          <div className="pt-6">
+          <div className="pb-4">
             <SyncStatusBanner status={sync} />
           </div>
         )}
+        <UpTabBar />
+      </div>
 
-        {/* Hero — total cash + net flow over range */}
-        <header className="pt-10 pb-10">
-          <div className="flex items-baseline justify-between gap-4 flex-wrap mb-6">
-            <p className="text-sm font-medium text-txt-muted">Total cash</p>
-            <RangePicker value={range} onChange={setRange} />
-          </div>
-          <p className={
-            'text-5xl sm:text-6xl font-bold font-mono ' +
-            (accountsLoading ? 'text-txt-muted animate-pulse-subtle' : 'text-txt-primary')
-          }>
-            {accountsLoading ? '—' : fmt(totalCash)}
-          </p>
-          {!loading && transactions.length > 0 && (
-            <div className="mt-6 grid grid-cols-3 gap-x-12 gap-y-1 max-w-md">
-              <Stat
-                label="Income"
-                value={`+$${flow.income.toLocaleString('en-AU', { minimumFractionDigits: 2 })}`}
-                tone="profit"
-              />
-              <Stat
-                label="Expense"
-                value={`−$${flow.expense.toLocaleString('en-AU', { minimumFractionDigits: 2 })}`}
-                tone="neutral"
-              />
-              <Stat
-                label="Net"
-                value={fmtSigned(flow.net)}
-                tone={flow.net >= 0 ? 'profit' : 'loss'}
-              />
-            </div>
-          )}
-          {!loading && (
-            <p className="mt-2 text-xs font-medium text-txt-muted">
-              over {RANGE_LABELS[range]}
-            </p>
-          )}
-        </header>
-
-        {/* Accounts */}
-        <Section title="Accounts">
-          {accountsLoading ? <Skeleton /> : <AccountList accounts={accounts} />}
-        </Section>
-
-        {/* Spending breakdown */}
-        <Section title="Spending by category">
-          {loading ? <Skeleton tall /> : <SpendingDonut breakdown={spending} />}
-        </Section>
-
-        {/* Subscriptions */}
-        <Section title="Subscriptions">
-          {recurringLoading ? <Skeleton tall /> : <RecurringList charges={recurring} />}
-        </Section>
-
-        {/* Transactions */}
-        <Section
-          title="Transactions"
-          aside={
-            !loading && transactions.length > 0
-              ? `${transactions.length}${transactions.length === 500 ? '+' : ''}`
-              : undefined
-          }
-          last
-        >
-          {loading ? <Skeleton tall /> : <TransactionList transactions={transactions} />}
-        </Section>
+      <div className="w-full max-w-[1600px] mx-auto px-8 py-8">
+        {active === 'balance' && (
+          <BalanceTab
+            accounts={accounts}
+            transactions={transactions}
+            accountsLoading={accountsLoading}
+            loading={loading}
+            range={range}
+            onRangeChange={setRange}
+            rangeLabel={rangeLabel}
+          />
+        )}
+        {active === 'spending' && (
+          <SpendingTab
+            spending={spending}
+            recurring={recurring}
+            loading={loading}
+            recurringLoading={recurringLoading}
+            range={range}
+            onRangeChange={setRange}
+            rangeLabel={rangeLabel}
+          />
+        )}
+        {active === 'transactions' && (
+          <TransactionsTab
+            transactions={transactions}
+            loading={loading}
+            range={range}
+            onRangeChange={setRange}
+            rangeLabel={rangeLabel}
+          />
+        )}
+        {active === 'ask' && <AskTab />}
       </div>
     </main>
-  )
-}
-
-function Section({
-  title, aside, last, children,
-}: {
-  title: string
-  aside?: string
-  last?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <section className={'border-t border-surface-border pt-8 ' + (last ? 'pb-16' : 'pb-10')}>
-      <div className="flex items-baseline justify-between gap-4 mb-4">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-txt-secondary">
-          {title}
-        </h2>
-        {aside && (
-          <span className="text-xs font-medium text-txt-muted tabular-nums">{aside}</span>
-        )}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function Stat({
-  label, value, tone,
-}: {
-  label: string
-  value: string
-  tone: 'profit' | 'loss' | 'neutral'
-}) {
-  const toneClass =
-    tone === 'profit' ? 'text-profit' :
-    tone === 'loss' ? 'text-loss' :
-    'text-txt-primary'
-  return (
-    <div>
-      <p className="text-[10px] font-medium uppercase tracking-wider text-txt-muted">{label}</p>
-      <p className={`font-mono text-sm tabular-nums ${toneClass}`}>{value}</p>
-    </div>
-  )
-}
-
-function Skeleton({ tall }: { tall?: boolean }) {
-  return (
-    <div className={'animate-pulse-subtle bg-surface-border/50 rounded ' + (tall ? 'h-32' : 'h-12')} />
   )
 }
