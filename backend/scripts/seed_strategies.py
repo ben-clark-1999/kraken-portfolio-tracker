@@ -64,11 +64,13 @@ def seed_dca_baseline(*, schema: str = "public") -> str:
     sb = get_supabase()
     payload = {
         "name": "DCA-Baseline",
-        "description": "Deterministic fortnightly buy; ETH-tilted control benchmark.",
+        "description": "Fixed-slice weekly DCA (12 buys); ETH-tilted passive baseline.",
         "execution_mode": "deterministic",
         "deterministic_config": {
-            "cadence_cron": "0 9 */14 * *",
+            "cadence_cron": "0 9 * * 1",   # Mondays 09:00 Australia/Sydney
             "tz": "Australia/Sydney",
+            "mode": "dca",
+            "num_buys": 12,                 # ≈ 3 months of weekly slices
             "allocations": {
                 "ETH/AUD": "0.50",
                 "SOL/AUD": "0.25",
@@ -78,7 +80,7 @@ def seed_dca_baseline(*, schema: str = "public") -> str:
         },
         "starting_balance_aud": "1000",
         "trigger_config": {
-            "triggers": [{"type": "cron", "expr": "0 9 */14 * *",
+            "triggers": [{"type": "cron", "expr": "0 9 * * 1",
                           "tz": "Australia/Sydney"}],
             "debounce_seconds": 0,
             "cooldown_seconds": 0,
@@ -93,6 +95,63 @@ def seed_dca_baseline(*, schema: str = "public") -> str:
     _seed_cash(sid, Decimal("1000"), schema)
     logger.info("Seeded strategy DCA-Baseline (%s)", sid)
     return sid
+
+
+def _seed_deterministic_rule(
+    *, name: str, description: str, det_config: dict, schema: str,
+) -> str:
+    existing = _existing_id_by_name(name, schema)
+    if existing:
+        return existing
+    sb = get_supabase()
+    payload = {
+        "name": name,
+        "description": description,
+        "execution_mode": "deterministic",
+        "deterministic_config": det_config,
+        "starting_balance_aud": "1000",
+        "trigger_config": {
+            "triggers": [{"type": "cron", "expr": det_config["cadence_cron"],
+                          "tz": det_config.get("tz", "Australia/Sydney")}],
+            "debounce_seconds": 0, "cooldown_seconds": 0, "max_calls_per_hour": 1000,
+        },
+        "risk_caps": _RISK_CAPS_DEFAULT,
+        "kill_criteria": _KILL_CRITERIA_DEFAULT,
+        "status": "active",
+        "dry_run": False,
+    }
+    sid = sb.schema(schema).table("strategies").insert(payload).execute().data[0]["id"]
+    _seed_cash(sid, Decimal("1000"), schema)
+    logger.info("Seeded strategy %s (%s)", name, sid)
+    return sid
+
+
+def seed_trend_rule(*, schema: str = "public") -> str:
+    return _seed_deterministic_rule(
+        name="Trend-Rule",
+        description="Deterministic twin of Trend-Follower: 24h breakout ±1.5%.",
+        det_config={
+            "cadence_cron": "0 9 * * *", "tz": "Australia/Sydney",
+            "mode": "trend_rule",
+            "universe": ["ETH/AUD", "SOL/AUD", "LINK/AUD", "ADA/AUD"],
+            "min_move_pct": "1.5",
+        },
+        schema=schema,
+    )
+
+
+def seed_mean_reversion_rule(*, schema: str = "public") -> str:
+    return _seed_deterministic_rule(
+        name="Mean-Reversion-Rule",
+        description="Deterministic twin of Mean-Reverter: 48h z-score, buy ≤-2σ, exit ≥mean.",
+        det_config={
+            "cadence_cron": "0 9 * * *", "tz": "Australia/Sydney",
+            "mode": "mean_reversion_rule",
+            "universe": ["ETH/AUD", "SOL/AUD", "LINK/AUD", "ADA/AUD"],
+            "entry_z": "-2", "exit_z": "0",
+        },
+        schema=schema,
+    )
 
 
 def _seed_llm_strategy(
@@ -166,8 +225,10 @@ def seed_all(*, schema: str = "public") -> None:
     seed_dca_baseline(schema=schema)
     seed_trend_follower(schema=schema)
     seed_mean_reverter(schema=schema)
+    seed_trend_rule(schema=schema)
+    seed_mean_reversion_rule(schema=schema)
 
 
 if __name__ == "__main__":
     seed_all()
-    print("Seeded 3 strategies.")
+    print("Seeded 5 strategies.")

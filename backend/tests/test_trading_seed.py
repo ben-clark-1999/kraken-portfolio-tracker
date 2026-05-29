@@ -74,3 +74,56 @@ def test_seed_dca_baseline_seeds_cash_position():
         "strategy_id", sid).eq("asset", "AUD").execute().data or []
     assert len(rows) == 1
     assert float(rows[0]["qty"]) == 1000.0
+
+
+def test_seed_dca_baseline_is_weekly_dca_mode():
+    from backend.scripts.seed_strategies import seed_dca_baseline
+    from backend.db.supabase_client import get_supabase
+    sid = seed_dca_baseline(schema=SCHEMA)
+    row = (get_supabase().schema(SCHEMA).table("strategies")
+           .select("*").eq("id", sid).execute().data[0])
+    cfg = row["deterministic_config"]
+    assert cfg["mode"] == "dca"
+    assert cfg["num_buys"] == 12
+    assert cfg["cadence_cron"] == "0 9 * * 1"
+    # Weekly cron trigger present.
+    assert any(t.get("expr") == "0 9 * * 1"
+               for t in row["trigger_config"]["triggers"] if t["type"] == "cron")
+    assert row["risk_caps"]["max_single_asset_pct"] == 100
+    assert row["kill_criteria"]["auto_pause_when"] == []
+
+
+def test_seed_trend_rule_is_deterministic_daily():
+    from backend.scripts.seed_strategies import seed_trend_rule
+    from backend.db.supabase_client import get_supabase
+    sid = seed_trend_rule(schema=SCHEMA)
+    row = (get_supabase().schema(SCHEMA).table("strategies")
+           .select("*").eq("id", sid).execute().data[0])
+    assert row["execution_mode"] == "deterministic"
+    cfg = row["deterministic_config"]
+    assert cfg["mode"] == "trend_rule"
+    assert set(cfg["universe"]) == {"ETH/AUD", "SOL/AUD", "LINK/AUD", "ADA/AUD"}
+    assert cfg["cadence_cron"] == "0 9 * * *"
+    assert str(cfg["min_move_pct"]) == "1.5"
+
+
+def test_seed_mean_reversion_rule_is_deterministic_daily():
+    from backend.scripts.seed_strategies import seed_mean_reversion_rule
+    from backend.db.supabase_client import get_supabase
+    sid = seed_mean_reversion_rule(schema=SCHEMA)
+    row = (get_supabase().schema(SCHEMA).table("strategies")
+           .select("*").eq("id", sid).execute().data[0])
+    cfg = row["deterministic_config"]
+    assert cfg["mode"] == "mean_reversion_rule"
+    assert str(cfg["entry_z"]) == "-2"
+    assert str(cfg["exit_z"]) == "0"
+
+
+def test_seed_all_creates_five_strategies():
+    from backend.scripts.seed_strategies import seed_all
+    from backend.db.supabase_client import get_supabase
+    seed_all(schema=SCHEMA)
+    names = {r["name"] for r in get_supabase().schema(SCHEMA).table("strategies")
+             .select("name").execute().data}
+    assert {"DCA-Baseline", "Trend-Follower", "Mean-Reverter",
+            "Trend-Rule", "Mean-Reversion-Rule"} <= names

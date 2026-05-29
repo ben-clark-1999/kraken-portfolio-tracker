@@ -7,6 +7,7 @@ execution mode and is included here for documentation continuity only.**
 ETH/AUD · SOL/AUD · LINK/AUD · ADA/AUD. No BTC. No USD pairs.
 
 ## Allocation
+Each weekly slice (≈ $83.33 of the $1,000) is split by these weights:
 - ETH/AUD — 50%
 - SOL/AUD — 25%
 - LINK/AUD — 15%
@@ -14,10 +15,14 @@ ETH/AUD · SOL/AUD · LINK/AUD · ADA/AUD. No BTC. No USD pairs.
 
 The order reflects the user's stated conviction: ETH > SOL > LINK > ADA.
 Not equal-weight by design — equal-weight wouldn't reflect a real,
-informed DCA stance.
+informed DCA stance. These weights are applied to each weekly slice, not a
+one-shot rebalance.
 
 ## Cadence
-Every 14 days at 09:00 AET. Cron: `0 9 */14 * *` (timezone: Australia/Sydney).
+Every Monday at 09:00 AET. Cron: `0 9 * * 1` (timezone: Australia/Sydney).
+The $1,000 is deployed in 12 equal weekly slices (~3 months), then the
+strategy holds. No rebalancing afterward — a passive baseline must not
+introduce active sell/rebuy decisions.
 
 ## Signals
 None. This is a control. Its job is to ask the smart strategies:
