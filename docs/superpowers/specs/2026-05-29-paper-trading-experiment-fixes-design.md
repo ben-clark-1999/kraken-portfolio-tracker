@@ -170,45 +170,50 @@ rules, not the method. So **every strategy plays by identical rules:**
 
 This resolves the fairness caveat noted in the prior draft.
 
-### 3.7 Two deterministic control strategies
+### 3.7 Two deterministic control strategies (matched twins)
 
 Add two **rules-based** strategies (`execution_mode = "deterministic"`, no LLM —
-cheap to run, perfectly reproducible). Each is the mechanical twin of an existing
-LLM agent, so the leaderboard can isolate whether the AI adds value over the
-rule.
+cheap to run, perfectly reproducible). Each is the **mechanical twin of an
+existing LLM agent**: it watches the *same signal that agent reacts to* and acts
+on a fixed cutoff instead of Claude's judgement. The only difference within a
+pair is "fixed threshold" vs "LLM reasoning", so the leaderboard isolates whether
+the AI adds value over a dumb version of itself.
 
-**Trend Rule** (`deterministic_config.mode = "trend_rule"`)
-- Hold each coin while it is **above its 50-day moving average**; exit to cash
-  when it drops below.
-- Target = **equal weight across the coins currently above their MA** (e.g. 3 of
-  4 qualify → ~33% each; none qualify → 100% cash).
-- Evaluated **daily** (`0 9 * * *`); trades only when the qualifying set changes
-  (a coin crosses its MA), to limit churn/fees.
-- Mechanical control for the **LLM Trend-Follower**.
+**Trend Rule** (`deterministic_config.mode = "trend_rule"`) — twin of the **LLM
+Trend-Follower**, whose trigger is a 24h breakout of ≥1.5%.
+- For each coin: price breaks **above its trailing 24-hour high by ≥1.5%** → go
+  long (target into it); breaks **below its trailing 24-hour low by ≥1.5%** →
+  exit to cash; otherwise hold current.
+- Target = equal weight across the coins currently "long" (none long → 100% cash).
+- Evaluated **daily** (`0 9 * * *`); trades only when a coin's state flips.
 
-**Mean-Reversion Rule** (`deterministic_config.mode = "mean_reversion_rule"`)
-- For each coin: **RSI(14) < 30 (oversold) → target into it**; **RSI > 70
-  (overbought) → exit to cash**; otherwise hold current.
-- Target weight per qualifying (oversold) coin = equal-weight share.
+**Mean-Reversion Rule** (`deterministic_config.mode = "mean_reversion_rule"`) —
+twin of the **LLM Mean-Reverter**, whose trigger is a 48h ±2σ stretch.
+- For each coin, using the **same 48-hour z-score the AI sees** (`(mid − mean48)
+  / stdev48`, already computed in `get_market_snapshot`): **z ≤ −2 (unusually
+  cheap) → buy in**; **z ≥ 0 (reverted to its average) → exit to cash**;
+  otherwise hold.
+- Target weight per held coin = equal-weight share.
 - Evaluated **daily**; trades only on threshold crossings.
-- Mechanical control for the **LLM Mean-Reverter**.
 
 **Shared needs:**
-- **Indicator data:** both need historical daily closes (50-day MA; RSI-14). Add
-  a small Kraken **OHLC candle fetch** (`public/OHLC`, daily interval) + an
-  indicator helper (`sma`, `rsi`) with light caching. New, self-contained.
+- **Indicator data — reuse what already exists.** Both signals come from data the
+  codebase already fetches: `kraken_service.get_ohlc_hourly` (48 hourly bars,
+  used today by `get_market_snapshot`) gives the trailing 24-hour high/low and
+  the 48h z-score. **No new fetch and no new table** — just compute the breakout
+  / read the z-score. (`get_ohlc_daily` and the `ohlc_cache` table are also on
+  hand if longer history is ever wanted.)
 - **Order-splitting on rebalance:** a target move can exceed the per-order cap
   (e.g. shifting ~$330 into one coin > $250). The deterministic submission path
   **splits any target order larger than `max_order_aud` into multiple ≤-cap
-  orders**, so targets are always reachable under a uniform cap. (This also
-  retroactively fixes the original "one giant order" failure mode for any
-  rebalance-style strategy.)
+  orders**, so targets are always reachable under a uniform cap. (Also
+  retroactively fixes the original "one giant order" failure mode.)
 - Same level-field caps as §3.6; routed through `invoke_deterministic_strategy`
   branching on `mode`.
 
-**Tuning note:** the specific settings (MA length, RSI period/thresholds,
-evaluation cadence, top-set sizing) are sensible standard defaults; exact values
-will be grounded with quick research at implementation rather than guessed now.
+**Tuning note:** the entry cutoffs (±1.5% breakout, −2σ) mirror the AI agents'
+existing trigger thresholds so the twins stay matched; the exit thresholds and
+daily cadence are sensible defaults, confirmable at implementation.
 
 ---
 
@@ -249,10 +254,11 @@ board and DCA is being redefined.
 
 - **DCA (`compute_dca_orders`)** — slice sizing + per-pair split; cap compliance;
   cash-exhaustion stop; final partial slice; weights sum to 1.
-- **Trend Rule** — qualifying-set selection vs MA; equal-weight targets;
-  all-cash when none qualify; trades only on crossings.
-- **Mean-Reversion Rule** — RSI threshold entries/exits; hold-in-between; targets.
-- **Indicators** — `sma`, `rsi` against known fixtures.
+- **Trend Rule** — long/exit on 24h breakout ±1.5%; equal-weight targets;
+  all-cash when none long; trades only on state flips.
+- **Mean-Reversion Rule** — buy at z ≤ −2, exit at z ≥ 0, hold between; targets.
+- **Signals** — trailing 24h high/low breakout and 48h z-score against known
+  OHLC fixtures.
 - **Order-splitting** — a target > cap produces N ≤-cap orders summing correctly.
 - **Reconciler wiring** — place a resting limit buy, publish a crossing book
   update through the feed, assert it fills and positions/cash update.
@@ -281,8 +287,9 @@ lifespan boot skipped under `PYTEST_CURRENT_TEST`).
 5. **Min-order sizes** — smallest weekly DCA slices are ADA ~$8.33 / LINK ~$12.50;
    verify they clear Kraken minimums at implementation (boot already runs a
    min-order universe check). Expected fine; flagged.
-6. **Indicator settings** — MA length / RSI period+thresholds / cadence to be
-   grounded at implementation (standard defaults assumed for now).
+6. **Signal cutoffs** — entry thresholds (±1.5% breakout, −2σ) mirror the AI
+   agents' existing triggers so the twins stay matched; exit thresholds + daily
+   cadence are defaults, confirmable at implementation.
 
 ---
 
@@ -293,7 +300,7 @@ lifespan boot skipped under `PYTEST_CURRENT_TEST`).
 2. Order-splitting on the deterministic submission path (§3.7) — needed by both
    rule strategies (DCA's slices are already under the cap, so it's unaffected).
 3. DCA `compute_dca_orders` + mode branch (§3.1).
-4. Indicator helper + Kraken OHLC fetch; Trend Rule + Mean-Reversion Rule (§3.7).
+4. Trend Rule + Mean-Reversion Rule, reusing existing OHLC/z-score data (§3.7).
 5. Reconciler wiring (§3.2).
 6. Warm-up gate (§3.3).
 7. Benchmark wiring + t0 capture (§3.4).
