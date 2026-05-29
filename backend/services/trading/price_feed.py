@@ -202,6 +202,12 @@ class PriceFeed:
                     checksum=book.checksum, ts=book.ts,
                 ), ts=book.ts,
             ))
+            # Fill any resting limit order the moving book has now crossed.
+            # Guarded: tests/legacy may run the feed with no executor attached.
+            if self.executor is not None and hasattr(
+                self.executor, "reconcile_resting_orders"
+            ):
+                await self.executor.reconcile_resting_orders(pair)
         elif ch == "trade":
             tick = parse_trade_message(msg)
             await self.bus.publish(tick)
