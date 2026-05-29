@@ -165,11 +165,28 @@ class KillCriteria(BaseModel):
 class DeterministicConfig(BaseModel):
     cadence_cron: str
     tz: str = "Australia/Sydney"
-    allocations: dict[str, Decimal]   # pair → weight (sums to 1.0)
+    # 'rebalance' = original target-weight rebalancer (kept for back-compat).
+    # 'dca'       = fixed-slice weekly dollar-cost averaging.
+    # 'trend_rule'/'mean_reversion_rule' = matched-twin control strategies.
+    mode: Literal["rebalance", "dca", "trend_rule", "mean_reversion_rule"] = "rebalance"
+    # Used by 'rebalance' and 'dca'. Empty for rule modes (targets computed
+    # at fire time). When present, must sum to 1.0.
+    allocations: dict[str, Decimal] = {}
+    # 'dca' only: number of equal slices the starting balance is split into.
+    num_buys: int | None = None
+    # Rule modes only: the pairs the rule watches.
+    universe: list[str] = []
+    # 'trend_rule' only: breakout threshold off the trailing 24h high/low.
+    min_move_pct: Decimal = Decimal("1.5")
+    # 'mean_reversion_rule' only: z-score entry/exit cutoffs.
+    entry_z: Decimal = Decimal("-2")
+    exit_z: Decimal = Decimal("0")
 
     @field_validator("allocations")
     @classmethod
     def _weights_sum_to_one(cls, v: dict[str, Decimal]) -> dict[str, Decimal]:
+        if not v:
+            return v
         total = sum(v.values())
         if abs(total - Decimal("1")) > Decimal("0.0001"):
             raise ValueError(f"allocations must sum to 1.0, got {total}")
