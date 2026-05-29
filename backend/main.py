@@ -108,6 +108,11 @@ async def _boot_trading_sandbox(app: FastAPI, tools) -> None:
                 snapshot_all_active(mids=mids)
             except Exception:
                 logger.exception("[Equity job] snapshot failed")
+            try:
+                from backend.services.trading.benchmark_snapshot import snapshot_benchmarks
+                snapshot_benchmarks(alt_mids=mids)
+            except Exception:
+                logger.exception("[Equity job] benchmark snapshot failed")
 
         scheduler.add_job(
             _equity_job, "interval", hours=1,
