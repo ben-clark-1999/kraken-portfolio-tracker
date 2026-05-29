@@ -146,3 +146,24 @@ def mean_reversion_signal(
     if z >= exit_z:
         return "exit"
     return "hold"
+
+
+def compute_rule_targets(
+    *, enter: set[str], exit_: set[str],
+    universe: list[str], held: set[str],
+) -> dict[str, Decimal] | None:
+    """Equal-weight targets for a rule strategy; trade only on set flips.
+
+    `held` is the set of universe pairs currently held (qty > 0). `enter`/
+    `exit_` are this fire's signals. The desired set keeps everything held
+    that wasn't told to exit, plus everything told to enter. If the desired
+    set equals the held set there is no flip → return None (no trades). Else
+    return equal weights over the desired set (0 for the rest), spanning the
+    full universe so `compute_rebalance_orders` can sell exited coins.
+    """
+    desired = (held - exit_) | enter
+    if desired == held:
+        return None
+    n = len(desired)
+    share = (Decimal("1") / Decimal(n)) if n else Decimal("0")
+    return {pair: (share if pair in desired else Decimal("0")) for pair in universe}
