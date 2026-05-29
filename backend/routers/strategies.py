@@ -69,6 +69,7 @@ def leaderboard() -> list[dict]:
         trades = (sb.schema(SCHEMA).table("paper_orders")
                     .select("id", count="exact")
                     .eq("strategy_id", s["id"])
+                    .in_("status", ["filled", "partial"])
                     .limit(0).execute().count or 0)
         cost_rows = (sb.schema(SCHEMA).table("agent_decisions")
                        .select("cost_aud")
