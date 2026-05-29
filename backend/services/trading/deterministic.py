@@ -109,3 +109,40 @@ def compute_dca_orders(
             allocated += notional
         orders.append(TargetOrder(pair=pair, side="buy", notional_aud=notional))
     return orders
+
+
+def trend_signal(
+    *, current_price: Decimal, closes: list[Decimal],
+    lookback_bars: int, min_move_pct: Decimal,
+) -> Literal["long", "exit", "hold"]:
+    """Twin of the LLM Trend-Follower's price_breakout trigger (spec §3.7).
+
+    Mirrors detect_breakout: break above the trailing high by ≥min_move_pct →
+    long; break below the trailing low by ≥min_move_pct → exit; else hold.
+    """
+    window = closes[-lookback_bars:]
+    if not window:
+        return "hold"
+    hi, lo = max(window), min(window)
+    up_thresh = hi * (Decimal("1") + min_move_pct / Decimal("100"))
+    dn_thresh = lo * (Decimal("1") - min_move_pct / Decimal("100"))
+    if current_price >= up_thresh:
+        return "long"
+    if current_price <= dn_thresh:
+        return "exit"
+    return "hold"
+
+
+def mean_reversion_signal(
+    *, z: Decimal, entry_z: Decimal, exit_z: Decimal,
+) -> Literal["buy", "exit", "hold"]:
+    """Twin of the LLM Mean-Reverter's price_stretch trigger (spec §3.7).
+
+    Uses the same 48h z-score the AI sees: z ≤ entry_z (unusually cheap) →
+    buy; z ≥ exit_z (reverted to the mean) → exit; else hold.
+    """
+    if z <= entry_z:
+        return "buy"
+    if z >= exit_z:
+        return "exit"
+    return "hold"
