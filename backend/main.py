@@ -76,6 +76,16 @@ async def _boot_trading_sandbox(app: FastAPI, tools) -> None:
         feed = PriceFeed(pairs=pairs, bus=bus, executor=executor)
 
         feed_task = asyncio.create_task(feed.run(), name="price_feed")
+
+        # Warm-up gate (spec §3.3): don't start strategy loops/triggers until
+        # the WS feed has delivered a book for every pair, or 30s elapses.
+        from backend.services.trading.price_feed import wait_for_books
+        warmed = await wait_for_books(executor, pairs, timeout_s=30.0)
+        if not warmed:
+            logger.warning(
+                "[Startup] Warm-up gate timed out; starting loops with "
+                "incomplete books (orders may reject until the feed catches up)"
+            )
         loop_tasks = [
             asyncio.create_task(
                 strategy_loop(strat, bus=bus),

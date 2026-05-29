@@ -211,3 +211,23 @@ class PriceFeed:
         elif ch == "trade":
             tick = parse_trade_message(msg)
             await self.bus.publish(tick)
+
+
+async def wait_for_books(executor, pairs, *, timeout_s: float = 30.0,
+                         poll_s: float = 0.5) -> bool:
+    """Block until every pair has a populated book (asks + bids), or timeout.
+
+    Spec §3.3 warm-up gate: prevents strategy loops/triggers firing into an
+    empty book at boot (which rejects BOOK_UNAVAILABLE). Returns True if all
+    books populated, False if the timeout elapsed first.
+    """
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout_s
+    while True:
+        books = getattr(executor, "_books", {}) or {}
+        if all(books.get(p) is not None and books[p].asks and books[p].bids
+               for p in pairs):
+            return True
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(poll_s)
