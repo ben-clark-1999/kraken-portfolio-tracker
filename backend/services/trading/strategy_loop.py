@@ -36,12 +36,33 @@ def set_executor(executor, *, schema: str = "public") -> None:
     _current_schema = schema
 
 
+def _book_for(pair: str):
+    if _current_executor is not None and hasattr(_current_executor, "_books"):
+        return _current_executor._books.get(pair)
+    return None
+
+
 async def invoke_deterministic_strategy(strategy: StrategyRow, event) -> None:
-    """Deterministic execution path — spec §6.4."""
+    """Deterministic execution path (spec §3.1 / §3.7).
+
+    Branches on deterministic_config.mode:
+      - 'rebalance'             → target-weight rebalancer (original)
+      - 'dca'                   → fixed-slice weekly DCA
+      - 'trend_rule'            → 24h breakout matched-twin
+      - 'mean_reversion_rule'   → 48h z-score matched-twin
+    Every target order is split under the per-order cap before submission.
+    """
+    import asyncio
     from decimal import Decimal
+    from statistics import mean as _mean, pstdev as _pstdev
     from time import perf_counter
+
     from backend.repositories import paper_positions_repo
-    from backend.services.trading.deterministic import compute_rebalance_orders
+    from backend.services import kraken_service
+    from backend.services.trading.deterministic import (
+        compute_dca_orders, compute_rebalance_orders, compute_rule_targets,
+        mean_reversion_signal, split_order, trend_signal,
+    )
     from backend.services.trading.decision_writer import write_agent_decision
 
     started = perf_counter()
@@ -49,112 +70,130 @@ async def invoke_deterministic_strategy(strategy: StrategyRow, event) -> None:
     if cfg is None:
         raise ValueError(f"Strategy {strategy.name} is deterministic but has no config")
 
-    # Snapshot current position values using attached book mids.
+    target_pairs = cfg.universe or list(cfg.allocations.keys())
+
+    # ── Snapshot positions + resolve a mid for every target pair ──────
     rows = paper_positions_repo.get_all(strategy.id, schema=_current_schema)
     mids: dict[str, Decimal] = {}
     positions_aud: dict[str, Decimal] = {}
+    held: set[str] = set()
     for asset, row in rows.items():
-        qty = Decimal(row["qty"])
+        qty = Decimal(str(row["qty"]))
         if asset == "AUD":
             positions_aud[asset] = qty
             continue
         pair = f"{asset}/AUD"
-        book = (_current_executor._books.get(pair)
-                if _current_executor is not None and hasattr(_current_executor, "_books")
-                else None)
-        if book is None:
-            mids[pair] = Decimal(row.get("avg_cost_aud") or "0")
-        else:
-            mids[pair] = book.mid()
+        book = _book_for(pair)
+        mids[pair] = book.mid() if book is not None else Decimal(str(row.get("avg_cost_aud") or "0"))
         positions_aud[asset] = qty * mids[pair]
+        if qty > 0 and pair in target_pairs:
+            held.add(pair)
 
-    # Populate mids for any target pair we don't already hold a position in.
-    # The previous code defaulted to Decimal("1") here, which downstream made
-    # `qty = notional_aud / mid` collapse to `qty = notional_aud` — i.e. AUD
-    # notionals were silently submitted as base-asset quantities. Observed
-    # 2026-05-14 first DCA fire: tried "500 ETH" / "250 SOL" / "150 LINK"
-    # which all rejected (BOOK_UNAVAILABLE), plus "100 ADA" which happened to
-    # fit the book and filled at AUD 38 instead of AUD 100.
-    #
-    # Prefer the live order book (executor._books), fall back to Kraken's
-    # public Ticker REST endpoint, and abort the rebalance entirely if a
-    # price still can't be obtained — better to miss a fortnightly fire than
-    # emit garbage-sized orders.
-    for pair in cfg.allocations:
+    for pair in target_pairs:
         if pair in mids:
             continue
-        book = (_current_executor._books.get(pair)
-                if _current_executor is not None
-                and hasattr(_current_executor, "_books")
-                else None)
+        book = _book_for(pair)
         if book is not None and book.bids and book.asks:
             mids[pair] = book.mid()
 
-    missing = [p for p in cfg.allocations if p not in mids]
+    missing = [p for p in target_pairs if p not in mids]
     if missing:
         try:
             from backend.services.trading.min_order import fetch_last_prices
-            prices = fetch_last_prices(missing)
-            for p, v in prices.items():
+            for p, v in fetch_last_prices(missing).items():
                 mids[p] = v
         except Exception:
-            logger.exception(
-                "Deterministic %s: Kraken REST price fallback failed",
-                strategy.name,
-            )
-        missing = [p for p in cfg.allocations if p not in mids]
+            logger.exception("Deterministic %s: REST price fallback failed", strategy.name)
+        missing = [p for p in target_pairs if p not in mids]
         if missing:
-            logger.warning(
-                "Deterministic %s: cannot price %s — skipping rebalance",
-                strategy.name, ",".join(missing),
-            )
+            logger.warning("Deterministic %s: cannot price %s — skipping",
+                           strategy.name, ",".join(missing))
             return
 
-    target_orders = compute_rebalance_orders(
-        positions_aud=positions_aud,
-        target_weights=cfg.allocations,
-        starting_balance_aud=strategy.starting_balance_aud,
-        mids=mids,
-    )
+    # ── Build target orders per mode ──────────────────────────────────
+    cash = positions_aud.get("AUD", Decimal("0"))
+    if cfg.mode == "dca":
+        if not cfg.num_buys:
+            raise ValueError(f"{strategy.name}: dca mode requires num_buys")
+        slice_total = strategy.starting_balance_aud / Decimal(cfg.num_buys)
+        target_orders = compute_dca_orders(
+            cash_aud=cash, slice_total=slice_total, weights=cfg.allocations)
+    elif cfg.mode in ("trend_rule", "mean_reversion_rule"):
+        enter: set[str] = set()
+        exit_: set[str] = set()
+        for pair in cfg.universe:
+            try:
+                bars = await asyncio.to_thread(kraken_service.get_ohlc_hourly, pair, 48)
+            except Exception:
+                logger.exception("Deterministic %s: OHLC fetch failed for %s — skipping pair",
+                                 strategy.name, pair)
+                continue
+            closes = [Decimal(str(b["close"])) for b in bars]
+            if len(closes) < 2:
+                continue
+            if cfg.mode == "trend_rule":
+                sig = trend_signal(current_price=mids[pair], closes=closes,
+                                   lookback_bars=24, min_move_pct=cfg.min_move_pct)
+                if sig == "long":
+                    enter.add(pair)
+                elif sig == "exit":
+                    exit_.add(pair)
+            else:
+                fcloses = [float(c) for c in closes]
+                sd = _pstdev(fcloses)
+                if sd <= 0:
+                    continue
+                z = Decimal(str((float(mids[pair]) - _mean(fcloses)) / sd))
+                sig = mean_reversion_signal(z=z, entry_z=cfg.entry_z, exit_z=cfg.exit_z)
+                if sig == "buy":
+                    enter.add(pair)
+                elif sig == "exit":
+                    exit_.add(pair)
+        targets = compute_rule_targets(
+            enter=enter, exit_=exit_, universe=cfg.universe, held=held)
+        if targets is None:
+            target_orders = []
+        else:
+            target_orders = compute_rebalance_orders(
+                positions_aud=positions_aud, target_weights=targets,
+                starting_balance_aud=strategy.starting_balance_aud, mids=mids)
+    else:  # 'rebalance'
+        target_orders = compute_rebalance_orders(
+            positions_aud=positions_aud, target_weights=cfg.allocations,
+            starting_balance_aud=strategy.starting_balance_aud, mids=mids)
+
+    # ── Split oversized orders under the per-order cap (spec §3.7) ─────
+    cap = strategy.risk_caps.max_order_aud
+    split_orders = [s for o in target_orders for s in split_order(order=o, max_order_aud=cap)]
 
     decision_id = write_agent_decision(
         strategy_id=strategy.id, execution_mode="deterministic",
-        # mode='json' coerces datetime → ISO string so JSONB serialisation works.
-        trigger_event=(event.model_dump(mode="json") if hasattr(event, "model_dump")
-                       else dict(event)),
+        trigger_event=(event.model_dump(mode="json") if hasattr(event, "model_dump") else dict(event)),
         input_snapshot={"positions_aud": {k: str(v) for k, v in positions_aud.items()},
-                        "mids": {k: str(v) for k, v in mids.items()}},
+                        "mids": {k: str(v) for k, v in mids.items()},
+                        "mode": cfg.mode},
         persona_prompt_hash=None, model=None,
         input_tokens=0, output_tokens=0, cost_aud=Decimal("0"),
         tool_calls=[{"tool": "place_paper_order",
-                     "args": {"pair": o.pair, "side": o.side,
-                              "notional_aud": str(o.notional_aud)}}
-                    for o in target_orders],
-        agent_output=None,
-        latency_ms=int((perf_counter() - started) * 1000),
-        error=None,
-        schema=_current_schema,
+                     "args": {"pair": o.pair, "side": o.side, "notional_aud": str(o.notional_aud)}}
+                    for o in split_orders],
+        agent_output=None, latency_ms=int((perf_counter() - started) * 1000),
+        error=None, schema=_current_schema,
     )
 
     if strategy.dry_run or _current_executor is None:
         return
 
-    for seq, o in enumerate(target_orders):
-        # Convert notional → qty at current mid. The upstream block guarantees
-        # `mids` has an entry for every allocation pair (or returned early),
-        # so this lookup must succeed. The previous `or Decimal("1")` fallback
-        # silently corrupted order size on first fire — keep it explicit.
+    for seq, o in enumerate(split_orders):
         mid = mids.get(o.pair)
         if mid is None or mid <= 0:
             raise RuntimeError(
-                f"No mid for {o.pair} at submission time — refusing to "
-                f"convert notional {o.notional_aud} to qty"
-            )
-        qty = (o.notional_aud / mid)
+                f"No mid for {o.pair} at submission time — refusing to convert "
+                f"notional {o.notional_aud} to qty")
         await _current_executor.submit_order(
             strategy_id=strategy.id,
             idempotency_key=f"{strategy.id}:{decision_id}:{seq}",
-            pair=o.pair, side=o.side, type="market", qty=qty,
+            pair=o.pair, side=o.side, type="market", qty=(o.notional_aud / mid),
         )
 
 
