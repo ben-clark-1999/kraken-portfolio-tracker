@@ -69,3 +69,43 @@ def split_order(*, order: TargetOrder, max_order_aud: Decimal) -> list[TargetOrd
         notional_aud=order.notional_aud - spent,
     ))
     return out
+
+
+# A fire that would spend less than this is treated as cash-exhausted; the
+# strategy holds rather than emitting dust orders (spec §3.1 stop condition).
+DCA_MIN_SPEND_AUD = Decimal("1.00")
+
+
+def compute_dca_orders(
+    *, cash_aud: Decimal, slice_total: Decimal, weights: dict[str, Decimal],
+) -> list[TargetOrder]:
+    """Fixed-slice dollar-cost averaging (spec §3.1).
+
+    Spend one slice (or whatever cash remains, if less) split across pairs by
+    weight. Below the dust floor, return no orders — the strategy is fully
+    invested and now holds. A skipped week (feed down) just delays completion:
+    the slice comes from remaining cash on the next successful fire, so no
+    money is lost or double-spent.
+    """
+    spend = min(slice_total, cash_aud)
+    if spend < DCA_MIN_SPEND_AUD:
+        return []
+    # Pairs whose slice share clears the dust floor; sub-dust shares stay as
+    # cash (we don't force-spend them onto other pairs).
+    kept = [(p, w) for p, w in weights.items()
+            if spend * w >= REBALANCE_DUST_THRESHOLD_AUD]
+    if not kept:
+        return []
+    total_w = sum((w for _, w in kept), Decimal("0"))
+    orders: list[TargetOrder] = []
+    allocated = Decimal("0")
+    for i, (pair, weight) in enumerate(kept):
+        if i == len(kept) - 1:
+            # Final order absorbs the Decimal-division residual so the kept
+            # orders sum exactly to spend*total_w (no rounding drift).
+            notional = spend * total_w - allocated
+        else:
+            notional = spend * weight
+            allocated += notional
+        orders.append(TargetOrder(pair=pair, side="buy", notional_aud=notional))
+    return orders
