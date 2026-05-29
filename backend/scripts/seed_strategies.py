@@ -14,20 +14,23 @@ from backend.db.supabase_client import get_supabase
 logger = logging.getLogger(__name__)
 
 
+# Level playing field (spec §3.6): identical rules for every strategy. No
+# allocation limits and no auto-pause — handicapping the active strategies
+# with risk limits the DCA baseline doesn't have would test our risk rules,
+# not the method. The per-order cap stays as uniform execution realism
+# (reachable via order-splitting). daily_loss/drawdown are set out of reach
+# so the kill machinery (kept for future real-money use) cannot fire here.
 _RISK_CAPS_DEFAULT = {
-    "max_single_asset_pct": 30,
-    "max_total_crypto_exposure_pct": 60,
+    "max_single_asset_pct": 100,
+    "max_total_crypto_exposure_pct": 100,
     "max_order_aud": 250,
-    "daily_loss_cap_aud": 100,
-    "max_drawdown_pct_before_pause": 25,
+    "daily_loss_cap_aud": 1_000_000,
+    "max_drawdown_pct_before_pause": 100,
     "allowed_pairs": ["ETH/AUD", "LINK/AUD", "ADA/AUD", "SOL/AUD"],
 }
 
 _KILL_CRITERIA_DEFAULT = {
-    "auto_pause_when": [
-        {"metric": "drawdown_pct", "op": ">=", "value": 25.0},
-        {"metric": "daily_loss_aud", "op": ">=", "value": 100.0},
-    ],
+    "auto_pause_when": [],
 }
 
 
