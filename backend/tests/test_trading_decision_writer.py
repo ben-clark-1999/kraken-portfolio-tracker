@@ -95,7 +95,12 @@ async def test_invoke_deterministic_strategy_emits_orders_and_decision_row():
     event = CronTriggerEvent(expr="0 9 */14 * *",
                              ts=datetime.now(timezone.utc))
     await invoke_deterministic_strategy(strat, event)
-    assert len(calls) == 4   # one order per pair on first rebalance
+    # ETH's 50% target ($500) exceeds the $250 per-order cap, so it splits into
+    # two $250 orders (spec §3.7); SOL ($250)/LINK ($150)/ADA ($100) each fit in
+    # one → 5 orders covering all four pairs.
+    assert len(calls) == 5
+    assert {c["pair"] for c in calls} == {"ETH/AUD", "SOL/AUD", "LINK/AUD", "ADA/AUD"}
+    assert sum(1 for c in calls if c["pair"] == "ETH/AUD") == 2
     sb = get_supabase()
     rows = (sb.schema(SCHEMA).table("agent_decisions").select("*")
               .eq("strategy_id", sid).execute().data or [])

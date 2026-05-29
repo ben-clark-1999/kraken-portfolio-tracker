@@ -22,6 +22,11 @@ def _dirty(monkeypatch):
         lambda: Decimal("150000"),
     )
     sb = get_supabase()
+    # Truncate first so this fixture is idempotent. test_reset_refuses_without
+    # _confirmation sys.exits before clearing, so its junk row would otherwise
+    # leak and collide with this fixed-PK insert on the next run.
+    sb.schema(SCHEMA).table("paper_benchmarks").delete().neq(
+        "benchmark_key", "__sentinel__").execute()
     # Leave some junk behind to prove it's cleared.
     sb.schema(SCHEMA).table("paper_benchmarks").insert({
         "benchmark_key": "btc_hodl", "ts": "2026-01-01T00:00:00+00:00",
