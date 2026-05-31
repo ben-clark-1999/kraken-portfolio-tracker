@@ -35,7 +35,9 @@ async def _boot_trading_sandbox(app: FastAPI, tools) -> None:
 
     from backend.agent.graph import set_strategy_tools
     from backend.repositories import strategies_repo, system_alerts_repo
-    from backend.scheduler import register_all_strategy_triggers, scheduler
+    from backend.scheduler import (
+        _INTERVAL_ANCHOR, register_all_strategy_triggers, scheduler,
+    )
     from backend.scripts.seed_strategies import seed_all
     from backend.services.trading.equity_snapshot import snapshot_all_active
     from backend.services.trading.event_bus import get_default_bus
@@ -73,6 +75,12 @@ async def _boot_trading_sandbox(app: FastAPI, tools) -> None:
         bus = get_default_bus()
         executor = PaperExecutor()
         set_executor(executor)
+        # Reconcile only pairs with resting limit orders; prime the set from
+        # any that survived a restart (see PaperExecutor._resting_pairs).
+        try:
+            executor.prime_resting_pairs()
+        except Exception:
+            logger.exception("[Startup] prime_resting_pairs failed")
         feed = PriceFeed(pairs=pairs, bus=bus, executor=executor)
 
         feed_task = asyncio.create_task(feed.run(), name="price_feed")
@@ -114,9 +122,13 @@ async def _boot_trading_sandbox(app: FastAPI, tools) -> None:
             except Exception:
                 logger.exception("[Equity job] benchmark snapshot failed")
 
+        # Anchored to a fixed grid so restarts (uvicorn --reload) resume the
+        # hourly schedule instead of resetting it — keeps the equity curve,
+        # the experiment's primary measurement, free of restart-induced gaps.
         scheduler.add_job(
             _equity_job, "interval", hours=1,
             id="paper_equity_snapshot", replace_existing=True,
+            start_date=_INTERVAL_ANCHOR, coalesce=True, misfire_grace_time=3600,
         )
 
         app.state.trading_executor = executor

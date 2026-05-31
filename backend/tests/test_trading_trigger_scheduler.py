@@ -37,6 +37,34 @@ def test_build_jobs_for_strategy_returns_one_per_trigger():
     assert kinds == {"interval", "cron"}
 
 
+def test_interval_trigger_anchored_to_created_at_grid():
+    """Restart-safety (Finding 2): the interval fire-grid is anchored to the
+    strategy's created_at, not to boot time. Without this, each app restart
+    (e.g. uvicorn --reload) re-registers the job with next_run = now + interval,
+    so a 12h interval could be pushed out indefinitely and never fire."""
+    from datetime import timedelta
+
+    created = datetime(2026, 5, 30, 8, 18, 33, tzinfo=timezone.utc)
+    strat = _strategy(triggers=[{"type": "interval", "minutes": 720}])
+    strat = strat.model_copy(update={"created_at": created})
+
+    scheduler = AsyncIOScheduler()
+    register_strategy_triggers(strat, scheduler=scheduler, bus=EventBus())
+    [job] = scheduler.get_jobs()
+
+    interval = timedelta(minutes=720)
+    assert job.trigger.interval == interval
+    # The next fire after ANY boot time lands on the created_at grid, so two
+    # different restart times yield the same grid-aligned schedule rather than
+    # boot-relative ones.
+    for boot in (created + timedelta(hours=3), created + timedelta(hours=27)):
+        nxt = job.trigger.get_next_fire_time(None, boot)
+        assert (nxt - created) % interval == timedelta(0), (
+            f"next fire {nxt} is not on the created_at grid for boot={boot}"
+        )
+        assert nxt > boot
+
+
 @pytest.mark.asyncio
 async def test_register_publishes_event_on_interval_fire():
     bus = EventBus()

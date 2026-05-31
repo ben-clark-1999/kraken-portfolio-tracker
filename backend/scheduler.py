@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -8,6 +9,15 @@ from backend.services import portfolio_service, snapshot_service, up_snapshot_se
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
+
+# Fixed anchor for interval jobs. APScheduler defaults an interval job's
+# start_date to "now" at registration, so each app restart pushes the next run
+# a full interval into the future — under uvicorn --reload (frequent restarts)
+# an hourly/12h job can rarely complete a cycle. Anchoring start_date to a
+# constant in the past pins every interval job to a stable grid, so a restart
+# resumes the grid instead of resetting the countdown. Per-strategy interval
+# triggers anchor to their own created_at (see trigger_scheduler).
+_INTERVAL_ANCHOR = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
 def _emit_job_alert(*, code: str, message: str, payload: dict | None = None) -> None:
@@ -66,12 +76,19 @@ async def _up_sync_tick() -> None:
 
 
 def start_scheduler() -> None:
-    scheduler.add_job(_hourly_snapshot, "interval", hours=1, id="hourly_snapshot")
-    # IntervalTrigger schedules the first run at start_date + interval (i.e.,
-    # ~15 min from now). Don't pass next_run_time=None here — that adds the
-    # job in a paused state and the interval never fires. The immediate kick
-    # below handles the boot-time backfill so we don't wait 15 min for it.
-    scheduler.add_job(_up_sync_tick, "interval", minutes=15, id="up_sync")
+    scheduler.add_job(
+        _hourly_snapshot, "interval", hours=1, id="hourly_snapshot",
+        start_date=_INTERVAL_ANCHOR, coalesce=True, misfire_grace_time=3600,
+        replace_existing=True,
+    )
+    # Anchored to _INTERVAL_ANCHOR so the first run is the next 15-min grid slot
+    # (≤15 min away) and restarts don't reset the countdown. The immediate kick
+    # below still handles boot-time backfill so we don't wait for the slot.
+    scheduler.add_job(
+        _up_sync_tick, "interval", minutes=15, id="up_sync",
+        start_date=_INTERVAL_ANCHOR, coalesce=True, misfire_grace_time=600,
+        replace_existing=True,
+    )
     scheduler.start()
     asyncio.get_event_loop().create_task(_up_sync_tick())
 

@@ -1,3 +1,4 @@
+
 """Bridge between APScheduler and the EventBus for cron/interval triggers.
 
 Each strategy's cron/interval triggers are registered as APScheduler jobs
@@ -51,7 +52,20 @@ def register_strategy_triggers(
                 replace_existing=True,
             )
         else:
-            it = IntervalTrigger(minutes=t["minutes"])
+            # Anchor the fire-grid to the strategy's created_at (a fixed point
+            # in the past) instead of letting APScheduler default start_date to
+            # "now". Otherwise every app restart re-registers the job with
+            # next_run = now + interval, so a frequently-restarted server (e.g.
+            # uvicorn --reload locally) keeps pushing a 12h interval out and it
+            # may never fire. A fixed anchor makes the schedule deterministic:
+            # a restart resumes the same grid, with the next fire at most one
+            # interval away. coalesce + misfire_grace_time let a slot missed
+            # during a brief downtime (laptop sleep) still fire once on resume.
+            it = IntervalTrigger(
+                minutes=t["minutes"],
+                start_date=strategy.created_at,
+                timezone=timezone.utc,
+            )
 
             async def _fire(minutes=t["minutes"]):
                 await bus.publish(IntervalTriggerEvent(
@@ -61,5 +75,6 @@ def register_strategy_triggers(
                 _fire, it,
                 id=f"strat-{strategy.id}-interval-{t['minutes']}",
                 replace_existing=True,
+                coalesce=True, misfire_grace_time=3600,
             )
     logger.info("Registered triggers for strategy %s", strategy.name)
