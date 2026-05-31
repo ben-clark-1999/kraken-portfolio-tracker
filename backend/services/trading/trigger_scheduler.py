@@ -43,9 +43,9 @@ def register_strategy_triggers(
         if kind == "cron":
             ct = CronTrigger.from_crontab(t["expr"], timezone=t.get("tz", "UTC"))
 
-            async def _fire(expr=t["expr"]):
+            async def _fire(expr=t["expr"], sid=str(strategy.id)):
                 await bus.publish(CronTriggerEvent(
-                    expr=expr, ts=datetime.now(timezone.utc),
+                    expr=expr, ts=datetime.now(timezone.utc), strategy_id=sid,
                 ))
             scheduler.add_job(
                 _fire, ct, id=f"strat-{strategy.id}-cron-{t['expr']}",
@@ -67,9 +67,9 @@ def register_strategy_triggers(
                 timezone=timezone.utc,
             )
 
-            async def _fire(minutes=t["minutes"]):
+            async def _fire(minutes=t["minutes"], sid=str(strategy.id)):
                 await bus.publish(IntervalTriggerEvent(
-                    minutes=minutes, ts=datetime.now(timezone.utc),
+                    minutes=minutes, ts=datetime.now(timezone.utc), strategy_id=sid,
                 ))
             scheduler.add_job(
                 _fire, it,

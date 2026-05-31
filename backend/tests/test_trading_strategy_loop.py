@@ -29,6 +29,29 @@ def _strategy(execution_mode="llm_agent"):
     )
 
 
+def test_scheduled_event_only_wakes_owning_strategy():
+    """A cron/interval fire must only wake the strategy that owns it. Without
+    owner-scoping, a daily-cron strategy's 09:00 tick also woke any other
+    strategy interested in the 'cron' type — turning weekly DCA into daily DCA
+    and corrupting the baseline."""
+    from backend.services.trading.strategy_loop import _event_matches_strategy
+
+    weekly = _strategy("deterministic")
+    weekly.trigger_config = {"triggers": [{"type": "cron", "expr": "0 9 * * 1"}]}
+    daily = _strategy("deterministic")
+    daily.trigger_config = {"triggers": [{"type": "cron", "expr": "0 9 * * *"}]}
+
+    # This event was fired by `daily`'s trigger (tagged with its id):
+    evt = CronTriggerEvent(expr="0 9 * * *", ts=datetime.now(timezone.utc),
+                           strategy_id=str(daily.id))
+    assert _event_matches_strategy(evt, daily) is True
+    assert _event_matches_strategy(evt, weekly) is False
+
+    # Back-compat: an untagged event still matches by type.
+    untagged = CronTriggerEvent(expr="0 9 * * *", ts=datetime.now(timezone.utc))
+    assert _event_matches_strategy(untagged, weekly) is True
+
+
 @pytest.mark.asyncio
 async def test_loop_invokes_llm_path_on_matching_event(monkeypatch):
     bus = EventBus()

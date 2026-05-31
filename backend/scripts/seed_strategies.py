@@ -169,10 +169,14 @@ def _seed_llm_strategy(
         "starting_balance_aud": "1000",
         "trigger_config": {
             "triggers": [
-                # 12-hourly heartbeat keeps LLM cost down. Event-driven
-                # triggers (breakouts / stretches / fills) still fire as
-                # before for actual signals.
-                {"type": "interval", "minutes": 720},
+                # Daily 09:00 cron, matched to the deterministic rule twins
+                # (Trend-Rule / Mean-Reversion-Rule) so the LLM and its twin
+                # wake at the same time on the same data — the comparison is
+                # then about reasoning, not cadence. NOTE: the event-driven
+                # breakout/stretch/order_filled triggers below are configured
+                # but not yet wired to a publisher (see trigger_evaluators),
+                # so today they don't fire — the daily cron is the live wake.
+                {"type": "cron", "expr": "0 9 * * *", "tz": "Australia/Sydney"},
                 *triggers_extra,
                 {"type": "order_filled"},
             ],

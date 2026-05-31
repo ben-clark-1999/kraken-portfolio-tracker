@@ -215,6 +215,15 @@ async def emergency_stop(strategy: StrategyRow, exc: BaseException) -> None:
 
 
 def _event_matches_strategy(event, strategy: StrategyRow) -> bool:
+    # Scheduled triggers (cron/interval) carry the id of the strategy that
+    # owns them, so a fire only wakes that strategy. Without this, every
+    # strategy interested in the 'cron' type would wake on every cron tick —
+    # e.g. the daily rule strategies' 09:00 tick would also fire weekly DCA,
+    # turning it into daily DCA and corrupting the baseline. Events with no
+    # owner tag (older callers / tests) fall back to type matching.
+    sid = getattr(event, "strategy_id", None)
+    if sid is not None and event.type in ("cron", "interval"):
+        return str(sid) == str(strategy.id)
     triggers = (strategy.trigger_config or {}).get("triggers", [])
     interested_types = {t["type"] for t in triggers}
     return event.type in interested_types

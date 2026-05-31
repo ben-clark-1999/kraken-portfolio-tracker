@@ -87,12 +87,17 @@ class CronTriggerEvent(BaseModel):
     type: Literal["cron"] = "cron"
     expr: str
     ts: datetime
+    # Owning strategy. Scheduled triggers are tagged so a fire only wakes the
+    # strategy whose trigger produced it — otherwise any strategy sharing the
+    # 'cron' type would wake on every cron tick (e.g. weekly DCA firing daily).
+    strategy_id: str | None = None
 
 
 class IntervalTriggerEvent(BaseModel):
     type: Literal["interval"] = "interval"
     minutes: int
     ts: datetime
+    strategy_id: str | None = None
 
 
 class PriceBreakoutEvent(BaseModel):
