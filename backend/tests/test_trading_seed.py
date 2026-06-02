@@ -85,11 +85,12 @@ def test_seed_dca_baseline_is_weekly_dca_mode():
     cfg = row["deterministic_config"]
     assert cfg["mode"] == "dca"
     assert cfg["num_buys"] == 12
-    # Day NAME, not number: from_crontab maps numeric DOW 0=Mon..6=Sun, so
-    # '0 9 * * 1' would fire Tuesday. See DCA_CADENCE_CRON.
-    assert cfg["cadence_cron"] == "0 9 * * mon"
+    # Day NAME, not number: from_crontab maps numeric DOW 0=Mon..6=Sun, so a
+    # bare number is ambiguous. Anchored to Tuesday (experiment kicked off
+    # Tue 2026-06-02). See DCA_CADENCE_CRON.
+    assert cfg["cadence_cron"] == "0 9 * * tue"
     # Weekly cron trigger present.
-    assert any(t.get("expr") == "0 9 * * mon"
+    assert any(t.get("expr") == "0 9 * * tue"
                for t in row["trigger_config"]["triggers"] if t["type"] == "cron")
     assert row["risk_caps"]["max_single_asset_pct"] == 100
     assert row["kill_criteria"]["auto_pause_when"] == []

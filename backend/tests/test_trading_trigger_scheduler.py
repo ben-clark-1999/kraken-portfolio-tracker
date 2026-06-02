@@ -87,10 +87,11 @@ def test_cron_jobs_survive_a_fire_time_blip():
     )
 
 
-def test_dca_baseline_weekly_cron_fires_on_monday():
+def test_dca_baseline_weekly_cron_fires_on_tuesday():
     """APScheduler's from_crontab reads a numeric day-of-week as 0=Mon..6=Sun,
-    NOT standard cron's 0=Sun..6=Sat — so '0 9 * * 1' silently fires Tuesday.
-    DCA-Baseline's weekly slice must land on Monday as designed/documented."""
+    NOT standard cron's 0=Sun..6=Sat — so always use the day NAME. The live
+    experiment was kicked off on Tue 2026-06-02, so the weekly slice is
+    anchored to Tuesday; DCA-Baseline must land on Tuesday as documented."""
     from backend.scripts.seed_strategies import DCA_CADENCE_CRON
 
     syd = ZoneInfo("Australia/Sydney")
@@ -98,7 +99,7 @@ def test_dca_baseline_weekly_cron_fires_on_monday():
     probe = datetime(2026, 6, 2, 0, 30, tzinfo=timezone.utc)
     for _ in range(3):
         nxt = ct.get_next_fire_time(None, probe).astimezone(syd)
-        assert nxt.strftime("%A") == "Monday", f"DCA fires on {nxt:%A}, expected Monday"
+        assert nxt.strftime("%A") == "Tuesday", f"DCA fires on {nxt:%A}, expected Tuesday"
         assert (nxt.hour, nxt.minute) == (9, 0)
         probe = nxt.astimezone(timezone.utc) + timedelta(seconds=1)
 
