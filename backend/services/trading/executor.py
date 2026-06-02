@@ -4,12 +4,15 @@ Spec §5. Same Protocol is later implemented by LiveKrakenExecutor.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal, Protocol
 from uuid import UUID
 
 from backend.models.trading import OrderResult, OrderRow
+
+logger = logging.getLogger(__name__)
 
 
 class OrderExecutor(Protocol):
@@ -49,6 +52,44 @@ class PaperExecutor:
         # health (heartbeat channel) rather than per-pair book.ts age,
         # which goes "stale" any time a pair has no recent trading.
         self._feed = None
+        # Pairs with a resting (pending/partial) limit order. The price feed
+        # only reconciles these on book updates — reconciling every pair on
+        # every tick floods the DB (sync client) and starves the event loop.
+        self._resting_pairs: set[str] = set()
+        # Cache of each pair's Kraken minimums {pair: {"ordermin", "costmin"}}.
+        # Fetched lazily on first order for a pair (they don't change often).
+        self._pair_minimums: dict[str, dict[str, Decimal]] = {}
+
+    def _min_order_aud(self, pair: str, ref_price: Decimal) -> Decimal | None:
+        """The AUD floor for `pair` (enforces Kraken ordermin AND costmin).
+
+        Returns None if Kraken minimums can't be fetched — fail-open so a
+        transient Kraken outage doesn't block all trading; the absence is
+        logged so it's visible.
+        """
+        from backend.services.trading.min_order import (
+            fetch_asset_pairs, min_notional_aud,
+        )
+        if pair not in self._pair_minimums:
+            try:
+                self._pair_minimums[pair] = fetch_asset_pairs([pair])[pair]
+            except Exception as e:  # noqa: BLE001 — fail-open, just log
+                logger.warning("min-order: no Kraken minimums for %s (%s)", pair, e)
+                return None
+        mins = self._pair_minimums[pair]
+        return min_notional_aud(
+            ordermin=mins["ordermin"], costmin=mins["costmin"], price=ref_price,
+        )
+
+    def prime_resting_pairs(self) -> None:
+        """Populate `_resting_pairs` from pending/partial limit orders already
+        in the DB (e.g. after a restart) so the feed reconciles them again."""
+        from backend.db.supabase_client import get_supabase
+        sb = get_supabase()
+        rows = (sb.schema(self._schema).table("paper_orders").select("pair")
+                  .in_("status", ["pending", "partial"]).eq("type", "limit")
+                  .execute().data or [])
+        self._resting_pairs = {r["pair"] for r in rows}
 
     def attach_book(self, pair: str, book) -> None:
         self._books[pair] = book
@@ -153,7 +194,10 @@ class PaperExecutor:
             session_loss_aud=Decimal("0"),   # filled in by Task 25
             drawdown_pct=Decimal("0"),
         )
-        decision = risk_cap_precheck(state=state, order=intent, caps=caps)
+        decision = risk_cap_precheck(
+            state=state, order=intent, caps=caps,
+            min_order_aud=self._min_order_aud(pair, ref_price),
+        )
         if not decision.accepted:
             order_id = paper_orders_repo.insert_order(
                 strategy_id=strategy_id, idempotency_key=idempotency_key,
@@ -203,6 +247,10 @@ class PaperExecutor:
             schema=self._schema,
         )
         paper_orders_repo.insert_fills(order_id, fills, schema=self._schema)
+
+        # Track resting limit orders so the feed reconciles only this pair.
+        if type == "limit" and status in ("pending", "partial"):
+            self._resting_pairs.add(pair)
 
         # 6. Update positions (cash + asset).
         await self._apply_positions(strategy_id, pair, side, fills)
@@ -288,6 +336,10 @@ class PaperExecutor:
                   .in_("status", ["pending", "partial"])
                   .eq("type", "limit")
                   .execute().data or [])
+        if not rows:
+            # Nothing resting on this pair anymore — stop reconciling it.
+            self._resting_pairs.discard(pair)
+            return
         for r in rows:
             limit_price = Decimal(r["limit_price"])
             side = r["side"]

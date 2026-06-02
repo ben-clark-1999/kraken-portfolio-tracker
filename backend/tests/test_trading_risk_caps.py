@@ -62,6 +62,38 @@ def test_total_crypto_cap_rejects_when_post_fill_exceeds():
     assert res.reject_reason == "MAX_TOTAL_CRYPTO_EXPOSURE_PCT"
 
 
+# ── Minimum-order gate (Kraken ordermin / costmin, in AUD) ──────
+
+def test_order_below_min_order_aud_rejected_buy_and_sell():
+    # An order whose AUD notional is below the pair's minimum is rejected
+    # regardless of side — you can't place a sub-minimum buy OR sell.
+    state = _state(positions={"ETH": Decimal("100")})
+    for side in ("buy", "sell"):
+        res = risk_cap_precheck(
+            state=state, order=_order(side=side, aud=Decimal("0.50")),
+            caps=RiskCaps(), min_order_aud=Decimal("5"),
+        )
+        assert not res.accepted, side
+        assert res.reject_reason == "BELOW_MIN_ORDER", side
+
+
+def test_order_at_min_order_aud_passes_min_gate():
+    res = risk_cap_precheck(
+        state=_state(), order=_order(aud=Decimal("5")),
+        caps=RiskCaps(), min_order_aud=Decimal("5"),
+    )
+    assert res.accepted
+
+
+def test_no_min_order_aud_means_no_min_gate():
+    # Default (no minimum supplied): a tiny order is NOT rejected for size.
+    res = risk_cap_precheck(
+        state=_state(), order=_order(aud=Decimal("0.01")),
+        caps=RiskCaps(),
+    )
+    assert res.accepted
+
+
 def test_daily_loss_cap_blocks_further_orders():
     state = _state()
     state.session_loss_aud = Decimal("100.01")

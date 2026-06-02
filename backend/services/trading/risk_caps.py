@@ -13,6 +13,7 @@ from backend.models.trading import RiskCaps
 
 CAP_NAMES = (
     "MAX_ORDER_AUD",
+    "BELOW_MIN_ORDER",
     "MAX_SINGLE_ASSET_PCT",
     "MAX_TOTAL_CRYPTO_EXPOSURE_PCT",
     "DAILY_LOSS_CAP_AUD",
@@ -55,10 +56,14 @@ class PortfolioState:
             new.cash_aud -= order.notional_aud
             new.positions[asset] = new.positions.get(asset, Decimal("0")) + order.notional_aud
         else:
-            new.cash_aud += order.notional_aud
-            new.positions[asset] = new.positions.get(asset, Decimal("0")) - order.notional_aud
-            if new.positions[asset] < 0:
-                new.positions[asset] = Decimal("0")
+            # A sell can only realise cash up to the value actually held —
+            # selling an asset you don't own is a no-op, not free cash. (This
+            # keeps acceptance monotonic in notional: a smaller sell is never
+            # riskier than a larger one.)
+            held = new.positions.get(asset, Decimal("0"))
+            realized = min(order.notional_aud, held) if held > Decimal("0") else Decimal("0")
+            new.cash_aud += realized
+            new.positions[asset] = held - realized
         return new
 
     def satisfies(self, caps: RiskCaps) -> bool:
@@ -83,10 +88,18 @@ class PrecheckResult:
 
 def risk_cap_precheck(
     *, state: PortfolioState, order: OrderIntent, caps: RiskCaps,
+    min_order_aud: Decimal | None = None,
 ) -> PrecheckResult:
     # 1. Pair allowed?
     if order.pair not in caps.allowed_pairs:
         return PrecheckResult(False, "PAIR_NOT_ALLOWED")
+
+    # 1b. Order at least the exchange minimum? `min_order_aud` is the pair's
+    #     Kraken floor already expressed in AUD — max(costmin, ordermin*price)
+    #     — so this one comparison enforces BOTH minimums, buy or sell. When
+    #     None (e.g. property tests, or minimums unavailable) the gate is off.
+    if min_order_aud is not None and order.notional_aud < min_order_aud:
+        return PrecheckResult(False, "BELOW_MIN_ORDER")
 
     # 2. Order AUD within max_order_aud?
     if order.notional_aud > caps.max_order_aud:
