@@ -33,11 +33,14 @@ _KILL_CRITERIA_DEFAULT = {
     "auto_pause_when": [],
 }
 
-# Weekly DCA cadence. Use the day NAME ('mon'), not the number: APScheduler's
+# Weekly DCA cadence. Use the day NAME ('tue'), not the number: APScheduler's
 # CronTrigger.from_crontab reads numeric day-of-week as 0=Mon..6=Sun, so the
-# standard-cron '... * * 1' (intended Monday) silently fires on Tuesday. The
+# standard-cron '... * * 2' (intended Tuesday) silently fires on Wednesday. The
 # name is unambiguous across both conventions.
-DCA_CADENCE_CRON = "0 9 * * mon"
+# Anchored to Tuesdays: the live experiment was kicked off on Tue 2026-06-02
+# (see scripts/start_dca_today.py), so the recurring slice fires on the same
+# weekday it started, keeping the baseline cadence regular.
+DCA_CADENCE_CRON = "0 9 * * tue"
 
 
 def _existing_id_by_name(name: str, schema: str) -> str | None:
@@ -73,7 +76,7 @@ def seed_dca_baseline(*, schema: str = "public") -> str:
         "description": "Fixed-slice weekly DCA (12 buys); ETH-tilted passive baseline.",
         "execution_mode": "deterministic",
         "deterministic_config": {
-            "cadence_cron": DCA_CADENCE_CRON,  # Mondays 09:00 Australia/Sydney
+            "cadence_cron": DCA_CADENCE_CRON,  # Tuesdays 09:00 Australia/Sydney
             "tz": "Australia/Sydney",
             "mode": "dca",
             "num_buys": 12,                 # ≈ 3 months of weekly slices
