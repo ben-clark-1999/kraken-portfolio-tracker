@@ -1,9 +1,11 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from backend.models.trading import StrategyRow, RiskCaps, KillCriteria
 from backend.services.trading.event_bus import EventBus
@@ -63,6 +65,42 @@ def test_interval_trigger_anchored_to_created_at_grid():
             f"next fire {nxt} is not on the created_at grid for boot={boot}"
         )
         assert nxt > boot
+
+
+def test_cron_jobs_survive_a_fire_time_blip():
+    """A cron job must not be silently dropped when the event loop is briefly
+    busy at the fire instant. With APScheduler's default misfire_grace_time=1s,
+    a blip (e.g. a timing-out Kraken HTTPS call blocking the loop at 09:00)
+    causes the slot to be missed and discarded — so no decision is ever written.
+    The interval branch already guards against this; the cron branch must too.
+    """
+    strat = _strategy(triggers=[
+        {"type": "cron", "expr": "0 9 * * *", "tz": "Australia/Sydney"},
+    ])
+    scheduler = AsyncIOScheduler()
+    register_strategy_triggers(strat, scheduler=scheduler, bus=EventBus())
+    [job] = scheduler.get_jobs()
+    assert job.coalesce is True
+    assert job.misfire_grace_time == 3600, (
+        f"cron job grace is {job.misfire_grace_time}s — a fire-time blip "
+        "longer than that is silently dropped with no catch-up"
+    )
+
+
+def test_dca_baseline_weekly_cron_fires_on_monday():
+    """APScheduler's from_crontab reads a numeric day-of-week as 0=Mon..6=Sun,
+    NOT standard cron's 0=Sun..6=Sat — so '0 9 * * 1' silently fires Tuesday.
+    DCA-Baseline's weekly slice must land on Monday as designed/documented."""
+    from backend.scripts.seed_strategies import DCA_CADENCE_CRON
+
+    syd = ZoneInfo("Australia/Sydney")
+    ct = CronTrigger.from_crontab(DCA_CADENCE_CRON, timezone="Australia/Sydney")
+    probe = datetime(2026, 6, 2, 0, 30, tzinfo=timezone.utc)
+    for _ in range(3):
+        nxt = ct.get_next_fire_time(None, probe).astimezone(syd)
+        assert nxt.strftime("%A") == "Monday", f"DCA fires on {nxt:%A}, expected Monday"
+        assert (nxt.hour, nxt.minute) == (9, 0)
+        probe = nxt.astimezone(timezone.utc) + timedelta(seconds=1)
 
 
 @pytest.mark.asyncio

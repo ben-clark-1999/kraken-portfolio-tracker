@@ -47,9 +47,18 @@ def register_strategy_triggers(
                 await bus.publish(CronTriggerEvent(
                     expr=expr, ts=datetime.now(timezone.utc), strategy_id=sid,
                 ))
+            # coalesce + misfire_grace_time mirror the interval branch below.
+            # Without them the cron job inherits APScheduler's 1s default grace,
+            # so if the event loop is briefly blocked at the fire instant — e.g.
+            # a timing-out Kraken HTTPS call at 09:00 (observed: HOURLY_SNAPSHOT
+            # _FAILED read-timeout landing the same minute as the cron slot) —
+            # the run is missed by >1s and silently discarded, with no catch-up.
+            # That dropped every daily/weekly strategy fire. A 1h grace lets a
+            # slot blocked by a transient hiccup still fire once the loop frees.
             scheduler.add_job(
                 _fire, ct, id=f"strat-{strategy.id}-cron-{t['expr']}",
                 replace_existing=True,
+                coalesce=True, misfire_grace_time=3600,
             )
         else:
             # Anchor the fire-grid to the strategy's created_at (a fixed point
