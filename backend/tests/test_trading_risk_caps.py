@@ -169,8 +169,17 @@ def test_reject_reason_names_a_cap(portfolio, order):
 @given(portfolio=_portfolios(), order=_orders())
 @settings(max_examples=200)
 def test_pre_check_monotonic_in_qty(portfolio, order):
-    """If accepted at notional N, also accepted at any 0 < n < N (same pair/side)."""
+    """A smaller BUY is never riskier than a larger one: if a buy is accepted
+    at notional N, it's also accepted at any 0 < n < N.
+
+    Asserted for buys only. It deliberately does NOT hold for sells: a sell
+    reduces a position, so a *larger* sell can clear the single-asset cap
+    that a smaller (partial) sell leaves breached — e.g. fully selling an
+    over-concentrated coin is accepted while selling only half of it is not.
+    "Smaller is always safer" simply isn't a property of risk-reducing orders.
+    """
     assume(order.notional_aud > Decimal("0"))
+    assume(order.side == "buy")
     res = risk_cap_precheck(state=portfolio, order=order, caps=RiskCaps())
     if res.accepted:
         smaller = OrderIntent(pair=order.pair, side=order.side,
