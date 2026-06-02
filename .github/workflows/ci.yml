@@ -1,0 +1,60 @@
+# Continuous Integration: run the backend unit-test suite on every push.
+# GitHub spins up a fresh Linux VM, installs the deps, and runs pytest.
+# A red check here means broken code never silently ships to Railway.
+name: CI
+
+# WHEN this workflow runs.
+#   - push: every push to any branch (catches work-in-progress early).
+#   - pull_request: re-run against PRs targeting main (the merge gate).
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+
+    # The app's config (pydantic BaseSettings in backend/config/settings.py)
+    # requires these fields to EXIST the moment the code is imported. CI has
+    # no real secrets, so we hand it throwaway values. This is safe because:
+    #   - the 368 unit tests never use the values, only their presence;
+    #   - every test that WOULD make a real Kraken/Supabase/Up call is tagged
+    #     `db` and excluded by the pytest -m filter in the final step.
+    env:
+      KRAKEN_API_KEY: dummy
+      KRAKEN_API_SECRET: ZHVtbXk=        # base64("dummy") — some code b64-decodes the secret
+      SUPABASE_URL: https://dummy.supabase.co
+      SUPABASE_KEY: dummy
+      APP_PASSWORD_HASH: dummy
+      JWT_SECRET: dummy
+      UP_PAT: dummy
+
+    steps:
+      # 1. Pull the repo onto the runner.
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      # 2. Install Python 3.13 (matches the Dockerfile's python:3.13-slim).
+      #    `cache: pip` saves the downloaded packages between runs, keyed on
+      #    requirements.txt, so installs are fast after the first run.
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      # 3. Install the backend's dependencies.
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      # 4. Run the suite, excluding:
+      #    - `eval`  : paid live-LLM tests (already excluded by pytest.ini too)
+      #    - `db`    : integration tests needing live Supabase / Up Bank
+      #    Running from the backend/ dir so pytest picks up backend/pytest.ini
+      #    and resolves the `backend.*` imports the same way it does locally.
+      - name: Run unit tests
+        working-directory: backend
+        run: python -m pytest -m "not eval and not db"

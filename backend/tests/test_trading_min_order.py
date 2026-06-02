@@ -3,8 +3,19 @@ from unittest.mock import patch
 
 from backend.services.trading.min_order import (
     MinOrderDecision, evaluate_min_order_for_pair,
-    filter_allowed_pairs_by_min_order,
+    filter_allowed_pairs_by_min_order, min_notional_aud,
 )
+
+
+def test_min_notional_aud_takes_the_larger_of_both_minimums():
+    # ordermin*price = 0.002 * 3000 = 6 AUD; costmin = 1 AUD → floor is 6.
+    assert min_notional_aud(
+        ordermin=Decimal("0.002"), costmin=Decimal("1"), price=Decimal("3000"),
+    ) == Decimal("6")
+    # When costmin dominates: ordermin*price = 0.0001*3000 = 0.3; costmin = 2 → 2.
+    assert min_notional_aud(
+        ordermin=Decimal("0.0001"), costmin=Decimal("2"), price=Decimal("3000"),
+    ) == Decimal("2")
 
 
 def _fake_asset_pairs():

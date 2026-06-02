@@ -89,6 +89,16 @@ class MinOrderDecision:
     reason: str | None = None
 
 
+def min_notional_aud(*, ordermin: Decimal, costmin: Decimal, price: Decimal) -> Decimal:
+    """Per-order AUD floor enforcing BOTH Kraken minimums.
+
+    `ordermin` is a base-asset quantity (e.g. ETH); converted to AUD at
+    `price`. `costmin` is already an AUD minimum cost. An order must clear
+    the larger of the two, so we return their max.
+    """
+    return max(ordermin * price, costmin)
+
+
 def evaluate_min_order_for_pair(
     *,
     pair: str,

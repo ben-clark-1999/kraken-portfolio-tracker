@@ -58,7 +58,12 @@ def test_expired_cookie_returns_401(client):
 
 def test_tampered_cookie_returns_401(client):
     token = encode_token()
-    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    # Corrupt the FIRST char of the signature segment. Flipping the last
+    # char of the token was flaky: base64's final char has spare bits that
+    # can decode to the same signature bytes, leaving the token valid.
+    head, payload, sig = token.split(".")
+    sig = ("A" if sig[0] != "A" else "B") + sig[1:]
+    tampered = f"{head}.{payload}.{sig}"
     client.cookies.set("auth_token", tampered)
     response = client.get("/protected")
     assert response.status_code == 401

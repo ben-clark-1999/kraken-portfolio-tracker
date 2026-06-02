@@ -268,3 +268,39 @@ def get_ohlc_daily(pair: str) -> dict[str, float]:
             dt = datetime.fromtimestamp(ts, tz=timezone.utc)
             prices[dt.strftime("%Y-%m-%d")] = close_price
     return prices
+
+
+def get_ohlc_hourly(pair: str, bars: int = 48) -> list[dict]:
+    """Return the last `bars` *completed* 1-hour candles for `pair`.
+
+    `pair` accepts the canonical "ETH/AUD" form. Newest candle is last.
+    The in-progress hour is always dropped (Kraken returns it as the
+    final element regardless of `since`).
+    """
+    kraken_pair = pair.replace("/", "")
+    market = _get_market()
+    try:
+        raw = market.get_ohlc(pair=kraken_pair, interval=60)
+    except Exception as e:
+        raise KrakenServiceError(f"get_ohlc_hourly({pair}) failed: {e}") from e
+
+    candles: list[list] = []
+    for key, val in raw.items():
+        if key == "last":
+            continue
+        candles = val
+        break
+
+    completed = candles[:-1] if candles else []
+    window = completed[-bars:]
+    return [
+        {
+            "ts": datetime.fromtimestamp(int(c[0]), tz=timezone.utc).isoformat(),
+            "open": str(c[1]),
+            "high": str(c[2]),
+            "low": str(c[3]),
+            "close": str(c[4]),
+            "volume": str(c[6]),
+        }
+        for c in window
+    ]
