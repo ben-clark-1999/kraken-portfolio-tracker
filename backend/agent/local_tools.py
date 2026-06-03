@@ -1,16 +1,14 @@
 """In-process LangChain tools for the LangGraph agent.
 
-Wraps the FastMCP-decorated functions in `backend.mcp_server` as LangChain
-BaseTool instances WITHOUT spawning a subprocess. Required so paper-trading
-tools can reach parent-process state (the LocalOrderBook instances kept by
-PriceFeed, and the PaperExecutor singleton on `strategy_loop._current_executor`)
-— a stdio MCP subprocess can't see those globals, which is what produced
-`BOOK_UNAVAILABLE` / `EXECUTOR_NOT_READY` after deploy.
-
-The implementations themselves stay put in `backend/mcp_server.py`
-(decorated with `@mcp.tool()` so the MCP server is still externally
-runnable if ever needed). Here we just import the bare callables and wrap
-them as LangChain tools.
+This file gives the AI agent its tools, running inside the main program. 
+It takes the tool functions from mcp_server.py and repackages them for the agent 
+— without starting a separate program. That matters because the paper-trading 
+tools need to reach live data held in the main program's memory (the order books 
+and the trade executor), and a separate program can't see that data — which is 
+exactly why those tools failed once it went live. The real function code stays in 
+mcp_server.py and keeps its MCP labels, so you could still run it as a proper MCP 
+server for an outside tool one day. Here, we just grab those plain functions and 
+re-wrap them for the agent
 """
 from __future__ import annotations
 
