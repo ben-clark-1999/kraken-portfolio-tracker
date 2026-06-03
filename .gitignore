@@ -1,7 +1,9 @@
 .env
+*.bak
 .venv
 **/__pycache__/
 **/*.pyc
+**/.DS_Store
 .superpowers/
 .claude/settings.json
 backend/evals/results/*.json
