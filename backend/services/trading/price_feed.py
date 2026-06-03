@@ -203,10 +203,15 @@ class PriceFeed:
                 ), ts=book.ts,
             ))
             # Fill any resting limit order the moving book has now crossed.
-            # Guarded: tests/legacy may run the feed with no executor attached.
-            if self.executor is not None and hasattr(
-                self.executor, "reconcile_resting_orders"
-            ):
+            # Only reconcile pairs that actually have a resting limit order:
+            # reconcile_resting_orders uses the synchronous Supabase client, so
+            # calling it on every book tick for every pair floods the DB and
+            # starves the asyncio event loop (the HTTP server stops responding).
+            # The executor tracks resting pairs in-memory. Guarded for executors
+            # that don't (tests/legacy) — they simply skip reconcile.
+            if (self.executor is not None
+                    and hasattr(self.executor, "reconcile_resting_orders")
+                    and pair in getattr(self.executor, "_resting_pairs", ())):
                 await self.executor.reconcile_resting_orders(pair)
         elif ch == "trade":
             tick = parse_trade_message(msg)
