@@ -118,13 +118,36 @@ One LLM wake per strategy per day, on Haiku, with a fixed handful of fetches.
 Prompt-cache the persona; cap the decision turn. Bounded and tiny for a ~$1k
 paper experiment.
 
+### A fair rule threshold (volatility-normalized)
+
+The trend rule currently triggers on a **flat 1.5% breakout cushion** — an
+arbitrary number that means different things per coin (1.5% is a real move for
+calm ETH but sits inside the normal noise of wilder SOL, which would then
+"break out" on jitter). Since the threshold governs the *rule* and the LLM is
+free of it, a badly-chosen 1.5% is a confound: the LLM could win merely because
+the rule was mis-tuned, not because its information helped.
+
+Fix: replace the flat percent with a **volatility-scaled cushion**.
+- Breakout up when price exceeds the recent high by **k · σ**; exit when it
+  drops below the recent low by **k · σ**.
+- σ is `stdev_48h_1h`, already returned by `get_market_snapshot` (from the
+  z-score work) — so the ingredient exists, minimal new code.
+- k defaults to a sensible value (~2). "A meaningful breakout" then means the
+  same statistical event (k normal-wiggles beyond the edge) for every coin, and
+  the trend rule is expressed in the **same units (σ) as the mean-reverter** —
+  one measures off the *edges*, one off the *center*. Methodologically symmetric.
+
+Honest scope: k is still a chosen parameter — better than 1.5% (scale-free,
+fair across coins, consistent with the mean-reverter), but *fair*, not *proven
+optimal*. Finding the best k is the deferred offline sweep. Sanity-check that
+the resulting cushion clears the round-trip fee.
+
 ### Fee-awareness (light)
 
 Both contestants already pay the real Kraken fee model (`fees.py`: 0.40% maker /
 0.80% taker; round-trip 0.8% / 1.6%) and walk-the-book slippage
-(`fill_model.py`). Only requirement: don't configure a rule threshold targeting
-a profit smaller than the round-trip cost. No per-pair derivation or sweep in
-v1.
+(`fill_model.py`). Only requirement: don't configure a threshold targeting a
+profit smaller than the round-trip cost. No per-pair derivation in v1.
 
 ## Out of scope (v1)
 
@@ -145,8 +168,11 @@ Recorded, deliberately not built now. The architecture scales with the toolset:
 2. **Intraday wiring** (fire on breakouts during the day) — and with it the
    **daily-research-cache / two-agent split**, which only pays off when
    amortising many intraday LLM calls.
-3. **Threshold normalization + offline net-of-cost buffer sweep** — makes the
-   rule a maximally fair, tuned opponent.
+3. **Offline net-of-cost buffer sweep** — backtest the (now volatility-scaled)
+   rule across a range of k values on historical data, P&L net of fees/slippage,
+   to find the best tuning and report the LLM against the whole curve. The
+   normalization itself is in v1 (above); only the sweep that *optimizes* k is
+   deferred.
 4. **Variable-isolation variants** (e.g. a price-only LLM third arm) — only if
    you later want to attribute *why* it wins, not *whether*.
 
