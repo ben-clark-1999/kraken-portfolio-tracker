@@ -17,7 +17,7 @@ export default function AskTab() {
   const empty = agent.messages.length === 0
 
   return (
-    <div className="flex gap-6 min-h-[640px]">
+    <div className="flex gap-6 h-[calc(100vh-12rem)]">
       <ChatHistorySidebar
         sessions={agent.sessions}
         activeSessionId={agent.sessionId}
@@ -26,9 +26,9 @@ export default function AskTab() {
         onDelete={agent.deleteSession}
       />
 
-      <div className="flex-1 min-w-0 relative">
+      <div className="flex-1 min-w-0 relative flex flex-col overflow-hidden">
         {empty ? (
-          <div className="relative overflow-hidden min-h-[560px] flex items-center justify-center">
+          <div className="relative overflow-hidden h-full flex items-center justify-center">
             <div
               aria-hidden
               className="absolute top-0 right-0 w-[420px] h-[420px] rounded-full bg-kraken/30 blur-3xl opacity-30 pointer-events-none"
@@ -54,7 +54,7 @@ export default function AskTab() {
             </div>
           </div>
         ) : (
-          <>
+          <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="max-w-[720px] mx-auto pb-32">
               <AgentConversation
                 messages={agent.messages}
@@ -67,7 +67,7 @@ export default function AskTab() {
             <div className="sticky bottom-4 max-w-[720px] mx-auto">
               <AgentInput variant="docked" onSubmit={(text) => agent.send(text)} />
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>
