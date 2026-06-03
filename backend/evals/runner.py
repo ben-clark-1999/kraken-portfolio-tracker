@@ -65,7 +65,14 @@ async def _run_single(
                     actual_answer_parts.append(str(chunk.content))
                 if hasattr(chunk, "tool_calls") and chunk.tool_calls:
                     for tc in chunk.tool_calls:
-                        actual_tools.append(tc["name"])
+                        name = tc.get("name") or ""
+                        # Skip LangChain synthetic tool_calls — "ClassifierOutput"
+                        # is the with_structured_output schema name surfaced as a
+                        # fake tool_call; "" appears mid-stream before a name is
+                        # populated. Same filter as websocket_handler.py.
+                        if not name or name == "ClassifierOutput":
+                            continue
+                        actual_tools.append(name)
                 # Capture tool results for the answer-quality judge.
                 if isinstance(chunk, ToolMessage):
                     actual_tool_results.append(str(chunk.content)[:500])  # truncate for prompt size
