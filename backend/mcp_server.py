@@ -445,15 +445,25 @@ def get_my_recent_decisions(strategy_id: str, n: int = 3) -> list[dict]:
 
 @mcp.tool()
 def get_market_snapshot(pairs: list[str] | None = None) -> dict:
-    """Returns top-of-book per pair from the live LocalOrderBooks.
+    """Top-of-book + 48 completed 1h OHLC bars + precomputed 48h z-score per pair.
+
+    `z_score_48h_1h` = (current_mid - mean of 48 hourly closes) / stdev of
+    those closes. A value of -2.0 means current price is two standard
+    deviations below the rolling 48h mean — the classic mean-reversion
+    buy signal. `mean_48h_1h` and `stdev_48h_1h` are exposed so the
+    arithmetic can be sanity-checked.
 
     Returns BOOK_UNAVAILABLE when the book is missing/empty or the WS
     connection itself is stale (no Kraken message in ~10s). Per-pair
     book.ts is NOT used for staleness because Kraken's book channel only
     diffs on change — a quiet pair has an old book.ts even while the
     WS connection is perfectly healthy and the book data is current.
+
+    If the Kraken REST OHLC fetch fails for a pair, the book fields are
+    still returned but `ohlc_1h_48` / z-score / mean / stdev are null and
+    `ohlc_error` carries the reason.
     """
-    from datetime import datetime, timezone
+    from statistics import mean as _mean, pstdev as _pstdev
     executor = _current_paper_executor()
     out: dict[str, dict] = {}
     pairs = pairs or list((executor._books if executor else {}).keys())
@@ -465,14 +475,37 @@ def get_market_snapshot(pairs: list[str] | None = None) -> dict:
             out[p] = {"error": "BOOK_UNAVAILABLE", "reason": reason}
             continue
         book = executor._books[p]
-        out[p] = {
+        mid = book.mid()
+        entry: dict = {
             "top_ask": {"price": str(book.top_ask().price),
                         "qty": str(book.top_ask().qty)},
             "top_bid": {"price": str(book.top_bid().price),
                         "qty": str(book.top_bid().qty)},
-            "mid": str(book.mid()),
+            "mid": str(mid),
             "ts": book.ts.isoformat() if book.ts else None,
         }
+        try:
+            bars = kraken_service.get_ohlc_hourly(p, bars=48)
+        except Exception as e:
+            entry["ohlc_1h_48"] = None
+            entry["mean_48h_1h"] = None
+            entry["stdev_48h_1h"] = None
+            entry["z_score_48h_1h"] = None
+            entry["ohlc_error"] = str(e)
+            out[p] = entry
+            continue
+        closes = [float(b["close"]) for b in bars]
+        if len(closes) >= 2:
+            mu = _mean(closes)
+            sd = _pstdev(closes)
+            z = (float(mid) - mu) / sd if sd > 0 else None
+        else:
+            mu = sd = z = None
+        entry["ohlc_1h_48"] = bars
+        entry["mean_48h_1h"] = f"{mu:.6f}" if mu is not None else None
+        entry["stdev_48h_1h"] = f"{sd:.6f}" if sd is not None else None
+        entry["z_score_48h_1h"] = round(z, 4) if z is not None else None
+        out[p] = entry
     return out
 
 
