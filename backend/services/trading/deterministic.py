@@ -119,8 +119,16 @@ def trend_signal(
 
     Mirrors detect_breakout: break above the trailing high by ≥min_move_pct →
     long; break below the trailing low by ≥min_move_pct → exit; else hold.
+
+    The trailing window EXCLUDES the most recent completed bar. `current_price`
+    (the live mid) stands in for "now"; the bar that just closed sits at ≈ that
+    same price. The rule fires on a cron aligned to the hour boundary, so the
+    just-closed bar's close ≈ current_price — leaving it in the window makes the
+    high/low absorb the current move and the breakout threshold unreachable
+    (current_price can't clear a band that already contains it). So compare
+    against the high/low established BEFORE the current bar.
     """
-    window = closes[-lookback_bars:]
+    window = closes[-(lookback_bars + 1):-1]
     if not window:
         return "hold"
     hi, lo = max(window), min(window)

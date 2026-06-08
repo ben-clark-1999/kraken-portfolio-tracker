@@ -32,12 +32,36 @@ def test_trend_hold_within_band():
 
 
 def test_trend_uses_only_lookback_window():
-    # Old high of 200 sits outside the 24-bar window; recent high is 100.
-    closes = [Decimal("200")] + [Decimal("100")] * 24
+    # Old high of 200 sits outside the trailing window; recent high is 100.
+    # 26 bars so that after the just-closed bar is excluded, the leading 200
+    # still falls outside the trailing 24-bar window.
+    closes = [Decimal("200")] + [Decimal("100")] * 25
     assert trend_signal(
         current_price=Decimal("102"), closes=closes,
         lookback_bars=24, min_move_pct=Decimal("1.5"),
     ) == "long"
+
+
+def test_trend_long_when_just_closed_bar_is_the_breakout():
+    # The most recent completed bar IS the breakout bar (100→110) and the live
+    # mid equals its close. The trailing high must be measured over the bars
+    # BEFORE it; otherwise the breakout hides inside its own window and the
+    # signal is permanently "hold" (the live cron-at-bar-boundary bug).
+    closes = [Decimal("100")] * 24 + [Decimal("110")]
+    assert trend_signal(
+        current_price=Decimal("110"), closes=closes,
+        lookback_bars=24, min_move_pct=Decimal("1.5"),
+    ) == "long"
+
+
+def test_trend_exit_when_just_closed_bar_is_the_breakdown():
+    # Symmetric: the most recent completed bar broke down (100→90) and the live
+    # mid equals its close. The trailing low must exclude that bar.
+    closes = [Decimal("100")] * 24 + [Decimal("90")]
+    assert trend_signal(
+        current_price=Decimal("90"), closes=closes,
+        lookback_bars=24, min_move_pct=Decimal("1.5"),
+    ) == "exit"
 
 
 # ── mean_reversion_signal: 48h z-score ────────────────────────────
