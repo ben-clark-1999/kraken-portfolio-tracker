@@ -40,7 +40,17 @@ export default function Login({ onAuthenticated }: Props) {
         style={{ background: 'linear-gradient(135deg, #0f0e14 0%, #131220 100%)' }}
       >
         <form onSubmit={handleSubmit} className="w-full max-w-[320px] flex flex-col gap-6">
-          <h1 className="text-lg font-semibold text-txt-primary tracking-tight">Sign in</h1>
+          <div className="flex items-center gap-2.5">
+            <span aria-hidden="true" className="relative inline-flex h-2.5 w-2.5">
+              <span className="absolute inset-0 rounded-full bg-kraken" />
+              <span className="absolute inset-0 rounded-full bg-kraken/40 blur-[3px]" />
+            </span>
+            <span className="text-[13px] font-mono font-medium tracking-tight text-txt-secondary lowercase">
+              kraken
+            </span>
+          </div>
+
+          <h1 className="text-2xl font-semibold text-txt-primary tracking-tight">Sign in</h1>
 
           <div className="flex flex-col gap-1">
             <input
@@ -61,7 +71,7 @@ export default function Login({ onAuthenticated }: Props) {
           <button
             type="submit"
             disabled={!password || submitting}
-            className="bg-kraken hover:bg-kraken-light active:scale-[0.98] text-txt-primary px-3 py-2.5 rounded-md text-sm font-medium transition disabled:opacity-70 disabled:cursor-not-allowed"
+            className="bg-kraken-dark hover:bg-kraken active:scale-[0.98] text-white px-3 py-2.5 rounded-md text-sm font-medium transition disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {submitting ? 'Signing in…' : 'Continue'}
           </button>

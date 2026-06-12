@@ -34,7 +34,7 @@ const components = {
   code: ({ inline, className, children, ...rest }: any) =>
     inline ? (
       <code
-        className="px-1 py-0.5 rounded bg-surface-raised text-[13px] font-mono text-accent"
+        className="px-1 py-0.5 rounded bg-surface-raised text-[13px] font-mono text-kraken-light"
         {...rest}
       >
         {children}

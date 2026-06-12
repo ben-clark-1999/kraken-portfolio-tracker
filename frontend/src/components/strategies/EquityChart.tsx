@@ -38,10 +38,10 @@ interface Props {
 
 const STRATEGY_PALETTE = [
   '#7B61FF', // kraken purple
-  '#5EEAD4', // accent teal
-  '#F472B6', // pink-400
-  '#FBBF24', // amber-400
-  '#A78BFA', // violet-400
+  '#06B6D4', // cyan
+  '#F472B6', // pink
+  '#F59E0B', // amber
+  '#627EEA', // blue
 ] as const
 
 const BENCH_KEYS = {

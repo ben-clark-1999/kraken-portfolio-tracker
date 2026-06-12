@@ -4,6 +4,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import type { PortfolioSummary, PortfolioSnapshot } from '../types'
+import Money from './Money'
 import { formatAUD } from '../utils/pnl'
 import { getAssetColor } from '../utils/assetColors'
 import { unionAssetKeys, computeRangeDelta } from '../utils/portfolioRange'
@@ -144,23 +145,18 @@ export default function ChartCard({
       {/* Zone 1 — balance hero row */}
       <div className="flex items-start justify-between gap-6 mb-5">
         <div className="flex items-start gap-3 min-w-0">
-          <span
-            aria-hidden="true"
-            className="mt-1 inline-flex h-7 w-7 items-center justify-center rounded-md bg-kraken/15"
-          >
-            <span className="h-2 w-2 rounded-full bg-kraken" />
-          </span>
           <div className="min-w-0">
             <p className="text-sm font-medium text-txt-muted leading-none mb-2">
               Balance
             </p>
             <div className="flex items-baseline gap-2 flex-wrap">
               {balance !== null ? (
-                <span className="text-4xl sm:text-5xl font-bold font-mono text-txt-primary">
-                  {formatAUD(balance)}
-                </span>
+                <Money
+                  value={balance}
+                  className="text-4xl sm:text-5xl font-semibold tracking-tight font-mono text-txt-primary"
+                />
               ) : (
-                <span className={`text-4xl sm:text-5xl font-bold font-mono text-txt-muted ${!summaryError ? 'animate-pulse-subtle' : ''}`}>
+                <span className={`text-4xl sm:text-5xl font-semibold tracking-tight font-mono text-txt-muted ${!summaryError ? 'animate-pulse-subtle' : ''}`}>
                   {summaryError ?? '—'}
                 </span>
               )}
@@ -198,7 +194,7 @@ export default function ChartCard({
 
       {/* Zone 2 — controls row */}
       <div className="flex items-center gap-3 mb-6 flex-wrap">
-        <div role="tablist" aria-label="Time range" className="flex items-center gap-1 rounded-md bg-surface/40 p-1">
+        <div role="tablist" aria-label="Time range" className="inline-flex items-center gap-px rounded-md border border-surface-border bg-surface p-0.5">
           {RANGE_OPTIONS.map((r) => {
             const active = r === range
             return (
@@ -209,11 +205,11 @@ export default function ChartCard({
                 type="button"
                 onClick={() => onRangeChange(r)}
                 className={[
-                  'rounded px-2.5 py-1 text-xs font-medium font-mono tracking-tight',
-                  'transition-[background-color,color] duration-150',
+                  'rounded px-2.5 py-1 text-xs font-medium tracking-wide',
+                  'transition-colors duration-150',
                   active
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-txt-muted hover:text-txt-primary',
+                    ? 'bg-kraken/20 text-txt-primary'
+                    : 'text-txt-secondary hover:text-txt-primary hover:bg-surface-hover',
                 ].join(' ')}
               >
                 {r}
@@ -222,9 +218,7 @@ export default function ChartCard({
           })}
         </div>
 
-        <span className="h-4 w-px bg-surface-border" aria-hidden="true" />
-
-        <div role="tablist" aria-label="View mode" className="flex items-center gap-1 rounded-md bg-surface/40 p-1">
+        <div role="tablist" aria-label="View mode" className="inline-flex items-center gap-px rounded-md border border-surface-border bg-surface p-0.5">
           {(['total', 'per-asset'] as View[]).map((v) => {
             const active = v === view
             return (
@@ -235,11 +229,11 @@ export default function ChartCard({
                 type="button"
                 onClick={() => onViewChange(v)}
                 className={[
-                  'rounded px-2.5 py-1 text-xs font-medium tracking-tight',
-                  'transition-[background-color,color] duration-150',
+                  'rounded px-2.5 py-1 text-xs font-medium tracking-wide',
+                  'transition-colors duration-150',
                   active
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-txt-muted hover:text-txt-primary',
+                    ? 'bg-kraken/20 text-txt-primary'
+                    : 'text-txt-secondary hover:text-txt-primary hover:bg-surface-hover',
                 ].join(' ')}
               >
                 {v === 'total' ? 'Total' : 'Per asset'}
@@ -279,8 +273,8 @@ export default function ChartCard({
             <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
               <defs>
                 <linearGradient id="totalFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#5EEAD4" stopOpacity={0.22} />
-                  <stop offset="100%" stopColor="#5EEAD4" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#7B61FF" stopOpacity={0.22} />
+                  <stop offset="100%" stopColor="#7B61FF" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="rgb(240 238 245 / 0.06)" vertical={false} />
@@ -297,7 +291,8 @@ export default function ChartCard({
                 tick={{ fontSize: 11, fill: '#9691a8' }}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(v) => `$${(Number(v) / 1000).toFixed(0)}k`}
+                domain={['auto', 'auto']}
+                tickFormatter={(v) => `$${(Number(v) / 1000).toFixed(1).replace(/\.0$/, '')}k`}
                 width={48}
               />
               <Tooltip
@@ -309,30 +304,16 @@ export default function ChartCard({
                 }}
               />
               {view === 'total' ? (
-                <>
-                  <Line
-                    type="monotone"
-                    dataKey="total"
-                    name="Total"
-                    stroke="#5EEAD4"
-                    strokeOpacity={0.35}
-                    strokeWidth={6}
-                    dot={false}
-                    isAnimationActive={false}
-                    activeDot={false}
-                    legendType="none"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="total"
-                    name="Total"
-                    stroke="#5EEAD4"
-                    strokeWidth={1.75}
-                    fill="url(#totalFill)"
-                    isAnimationActive={false}
-                    activeDot={{ r: 5, fill: '#5EEAD4', stroke: '#0f0e14', strokeWidth: 2 }}
-                  />
-                </>
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  name="Total"
+                  stroke="#7B61FF"
+                  strokeWidth={1.75}
+                  fill="url(#totalFill)"
+                  isAnimationActive={false}
+                  activeDot={{ r: 5, fill: '#7B61FF', stroke: '#0f0e14', strokeWidth: 2 }}
+                />
               ) : (
                 assets.map((asset) => (
                   <Line

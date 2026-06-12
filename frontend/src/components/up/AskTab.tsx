@@ -35,7 +35,7 @@ export default function AskTab() {
             />
             <div
               aria-hidden
-              className="absolute bottom-0 left-0 w-[420px] h-[420px] rounded-full bg-accent/20 blur-3xl opacity-30 pointer-events-none"
+              className="absolute bottom-0 left-0 w-[420px] h-[420px] rounded-full bg-kraken-dark/25 blur-3xl opacity-30 pointer-events-none"
             />
             <div className="relative w-full max-w-[640px] flex flex-col items-center text-center px-6">
               <div className="bg-kraken/10 p-3 rounded-2xl mb-6">

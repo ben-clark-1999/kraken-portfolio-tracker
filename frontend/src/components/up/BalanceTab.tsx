@@ -1,4 +1,5 @@
 import AccountList from './AccountList'
+import Money from '../Money'
 import RangePicker, { type Range } from '../combined/RangePicker'
 import type { UpAccount, UpTransaction } from '../../types/up'
 
@@ -10,10 +11,6 @@ interface Props {
   range: Range
   onRangeChange: (r: Range) => void
   rangeLabel: string
-}
-
-function fmt(n: number): string {
-  return `$${n.toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
 }
 
 function fmtSigned(n: number): string {
@@ -41,10 +38,10 @@ export default function BalanceTab({
           <RangePicker value={range} onChange={onRangeChange} />
         </div>
         <p className={
-          'text-5xl sm:text-6xl font-bold font-mono ' +
+          'text-5xl sm:text-6xl font-semibold tracking-tight font-mono ' +
           (accountsLoading ? 'text-txt-muted animate-pulse-subtle' : 'text-txt-primary')
         }>
-          {accountsLoading ? '—' : fmt(totalCash)}
+          {accountsLoading ? '—' : <Money value={totalCash} />}
         </p>
         {!loading && transactions.length > 0 && (
           <div className="mt-6 grid grid-cols-3 gap-x-12 gap-y-1 max-w-md">

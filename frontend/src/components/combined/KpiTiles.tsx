@@ -1,3 +1,4 @@
+import Money from '../Money'
 import type { CombinedSummary } from '../../types/up'
 
 interface RangeDelta {
@@ -46,7 +47,7 @@ export default function KpiTiles({ summary, asOf, delta }: Props) {
     return (
       <header>
         <p className="text-sm font-medium text-txt-muted mb-2">Net worth</p>
-        <p className="text-5xl sm:text-6xl font-bold font-mono text-txt-muted animate-pulse-subtle">
+        <p className="text-5xl sm:text-6xl font-semibold tracking-tight font-mono text-txt-muted animate-pulse-subtle">
           —
         </p>
         <div className="mt-8 grid grid-cols-2 gap-x-12 max-w-md">
@@ -67,8 +68,8 @@ export default function KpiTiles({ summary, asOf, delta }: Props) {
     <header>
       <p className="text-sm font-medium text-txt-muted mb-2">Net worth</p>
       <div className="flex items-baseline gap-5 flex-wrap">
-        <p className="text-5xl sm:text-6xl font-bold font-mono text-txt-primary">
-          {fmt(summary.total)}
+        <p className="text-5xl sm:text-6xl font-semibold tracking-tight font-mono text-txt-primary">
+          <Money value={summary.total} />
         </p>
         {delta && Number.isFinite(delta.pct) && (
           <p className={
@@ -94,7 +95,7 @@ export default function KpiTiles({ summary, asOf, delta }: Props) {
           <p className="text-xs font-medium uppercase tracking-wider text-txt-muted mb-1">
             Crypto
           </p>
-          <p className="text-xl font-mono text-txt-primary">{fmt(summary.crypto)}</p>
+          <p className="text-xl font-medium font-mono text-txt-primary">{fmt(summary.crypto)}</p>
           <p className="mt-1 text-xs font-medium text-txt-secondary">
             {pct(summary.crypto, summary.total)} of total
           </p>
@@ -103,7 +104,7 @@ export default function KpiTiles({ summary, asOf, delta }: Props) {
           <p className="text-xs font-medium uppercase tracking-wider text-txt-muted mb-1">
             UP cash
           </p>
-          <p className="text-xl font-mono text-txt-primary">{fmt(summary.up)}</p>
+          <p className="text-xl font-medium font-mono text-txt-primary">{fmt(summary.up)}</p>
           <p className="mt-1 text-xs font-medium text-txt-secondary">
             {pct(summary.up, summary.total)} of total
           </p>

@@ -79,10 +79,8 @@ export default function SidebarNav({ onSignedOut }: Props) {
       </div>
 
       <div className="mt-auto px-4 pb-4 pt-4 border-t border-surface-border/60 flex items-center justify-between gap-3">
-        <p className="text-[10px] font-mono tracking-wide text-txt-muted uppercase leading-tight">
-          Portfolio
-          <br />
-          <span className="text-txt-secondary normal-case tracking-tight">tracker</span>
+        <p className="text-[11px] font-mono tracking-tight text-txt-muted lowercase">
+          portfolio tracker
         </p>
         <SignOutButton onSignedOut={onSignedOut} />
       </div>

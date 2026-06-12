@@ -5,7 +5,9 @@ interface Props {
   breakdown: Record<string, number>
 }
 
-const COLORS = ['#7B61FF', '#5EEAD4', '#22D3EE', '#60A5FA', '#A78BFA', '#34D399', '#F59E0B']
+// Same data-hue family as the charts: brand purple first, then hues that
+// avoid the profit-green / loss-red semantic colors.
+const COLORS = ['#7B61FF', '#06B6D4', '#F472B6', '#F59E0B', '#627EEA', '#9945FF', '#9691a8']
 
 function prettify(slug: string): string {
   return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Trophy } from 'lucide-react'
 
 import LeaderboardTable from '../components/strategies/LeaderboardTable'
 import EquityChart from '../components/strategies/EquityChart'
@@ -80,7 +79,7 @@ export default function StrategiesPage() {
 
   return (
     <main className="min-h-screen bg-surface text-txt-primary font-sans">
-      <div className="max-w-7xl mx-auto px-6">
+      <div className="max-w-[1440px] mx-auto px-8 animate-rise">
 
         <header className="pt-10 pb-2 flex items-start justify-between gap-6 flex-wrap">
           <div>
@@ -166,22 +165,10 @@ export default function StrategiesPage() {
 function ShortWindowCaveat() {
   if (new Date() >= SHORT_WINDOW_CUTOFF) return null
   return (
-    <div
-      role="note"
-      className="mb-4 rounded-md border border-surface-border/60 bg-surface-raised/40 px-4 py-3"
-    >
-      <p className="flex items-start gap-2.5 text-sm leading-relaxed text-txt-secondary">
-        <span
-          aria-hidden="true"
-          className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-kraken-light/70"
-        />
-        <span>
-          Comparisons are noisy until the window includes several weeks of
-          varied market conditions. Treat numbers cautiously through mid-June
-          2026.
-        </span>
-      </p>
-    </div>
+    <p role="note" className="mb-4 max-w-[65ch] text-sm leading-relaxed text-txt-muted">
+      Comparisons are noisy until the window includes several weeks of varied
+      market conditions. Treat numbers cautiously through mid-June 2026.
+    </p>
   )
 }
 
@@ -201,9 +188,6 @@ function SectionHeader({ children, count }: { children: ReactNode; count?: strin
 function EmptyState() {
   return (
     <div className="rounded-lg border border-surface-border/60 bg-surface-raised/40 px-8 py-10 text-center max-w-md mx-auto">
-      <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-kraken/12 ring-1 ring-kraken/20 mb-4">
-        <Trophy aria-hidden="true" strokeWidth={1.5} className="h-4 w-4 text-kraken-light" />
-      </div>
       <h2 className="text-base font-medium tracking-tight text-txt-primary">
         No strategies yet
       </h2>

@@ -47,11 +47,11 @@ export default function CryptoPage() {
         />
       )}
 
-      <div className="w-full max-w-[1600px] mx-auto px-8 pt-6">
+      <div className="w-full max-w-[1440px] mx-auto px-8 pt-6">
         <CryptoTabBar />
       </div>
 
-      <div className="w-full max-w-[1600px] mx-auto px-8 py-8">
+      <div className="w-full max-w-[1440px] mx-auto px-8 py-8 animate-rise">
         {active === 'balance' && (
           <BalanceTab
             summary={data.summary}

@@ -5,9 +5,36 @@
 @layer base {
   html {
     @apply bg-surface text-txt-primary;
+    /* Dark-only app: native scrollbars, form controls, and UA widgets
+       should render dark rather than flashing light chrome. */
+    color-scheme: dark;
     font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgb(123 97 255 / 0.35);
+    color: #f0eef5;
+  }
+
+  /* Quiet scrollbars that sit on the surface instead of shouting over it */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2a2735 transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2735;
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   /* Tabular figures for all numeric data — columns align precisely */
@@ -51,6 +78,10 @@
   .animate-fade-in {
     animation: fade-in 200ms ease-out;
   }
+  /* One quiet entrance per page mount — no stagger, no bounce */
+  .animate-rise {
+    animation: rise 350ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
   .animate-glow-pulse {
     animation: glow-pulse 8s ease-in-out infinite;
   }
@@ -70,6 +101,11 @@
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes glow-pulse {

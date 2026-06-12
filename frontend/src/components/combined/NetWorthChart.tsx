@@ -27,10 +27,12 @@ interface Props {
   snapshots: CombinedSnapshot[]
 }
 
+// Total carries the brand purple; Crypto and UP cash take distinct data
+// hues that stay clear of the profit-green / loss-red semantic colors.
 const SERIES = [
   { key: 'Total',  color: '#7B61FF', label: 'Total' },
-  { key: 'Crypto', color: '#5EEAD4', label: 'Crypto' },
-  { key: 'UP',     color: '#22C55E', label: 'UP cash' },
+  { key: 'Crypto', color: '#06B6D4', label: 'Crypto' },
+  { key: 'UP',     color: '#F59E0B', label: 'UP cash' },
 ] as const
 
 function formatTick(iso: string): string {
@@ -142,7 +144,8 @@ export default function NetWorthChart({ snapshots }: Props) {
             tickLine={false}
             axisLine={false}
             tick={{ fontSize: 11, fill: '#9691a8' }}
-            tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
+            domain={['auto', 'auto']}
+            tickFormatter={v => `$${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`}
             width={56}
           />
           <Tooltip

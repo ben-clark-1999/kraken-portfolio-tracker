@@ -70,7 +70,7 @@ export default function CombinedPage() {
 
   return (
     <main className="min-h-screen bg-surface text-txt-primary font-sans">
-      <div className="max-w-7xl mx-auto px-6">
+      <div className="max-w-[1440px] mx-auto px-8 animate-rise">
 
         {sync && sync.state !== 'ready' && (
           <div className="pt-6">

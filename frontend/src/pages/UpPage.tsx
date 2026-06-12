@@ -95,7 +95,7 @@ export default function UpPage() {
 
   return (
     <main className="min-h-screen bg-surface text-txt-primary font-sans">
-      <div className="w-full max-w-[1600px] mx-auto px-8 pt-6">
+      <div className="w-full max-w-[1440px] mx-auto px-8 pt-6">
         {sync && sync.state !== 'ready' && (
           <div className="pb-4">
             <SyncStatusBanner status={sync} />
@@ -104,7 +104,7 @@ export default function UpPage() {
         <UpTabBar />
       </div>
 
-      <div className="w-full max-w-[1600px] mx-auto px-8 py-8">
+      <div className="w-full max-w-[1440px] mx-auto px-8 py-8 animate-rise">
         {active === 'balance' && (
           <BalanceTab
             accounts={accounts}
