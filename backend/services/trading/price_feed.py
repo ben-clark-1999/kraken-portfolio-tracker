@@ -91,6 +91,8 @@ class PriceFeed:
         pairs: list[str],
         bus: EventBus | None = None,
         executor=None,   # PaperExecutor to attach books onto
+        stale_after_s: float = 90.0,
+        watchdog_interval_s: float = 15.0,
     ) -> None:
         self.pairs = pairs
         self.bus = bus or get_default_bus()
@@ -103,6 +105,19 @@ class PriceFeed:
         # so low-volume pairs can be quiet for tens of seconds while the
         # connection is perfectly healthy.
         self.last_message_at: datetime | None = None
+        # Watchdog: the connection-level reconnect only fires on a socket
+        # exception. Kraken's 1Hz heartbeat keeps the socket "alive" even when
+        # the book channel silently stops, so book.ts can freeze indefinitely
+        # with no exception (all four alt feeds froze >2h on 2026-06-16). The
+        # watchdog forces a reconnect once a populated book passes this age.
+        # Set comfortably above any normal book-update gap for liquid pairs but
+        # below the frontend's 300s "feed silent" red threshold so it self-heals
+        # before the operator sees it.
+        self.stale_after_s = stale_after_s
+        self.watchdog_interval_s = watchdog_interval_s
+        # Handle to the live websocket so the watchdog can close it to trigger
+        # the reconnect path in run(). None while disconnected/reconnecting.
+        self._ws = None
         if self.executor is not None:
             for p, b in self.books.items():
                 self.executor.attach_book(p, b)
@@ -118,35 +133,90 @@ class PriceFeed:
             return False
         return (now - self.last_message_at).total_seconds() <= max_age_s
 
-    async def run(self) -> None:
-        backoff = 1
-        while True:
+    def _stale_pairs(self, now: datetime) -> list[str]:
+        """Pairs whose book has been populated but hasn't updated in
+        `stale_after_s`. Never-connected books (ts is None → age inf) are
+        excluded — warming those is the warm-up gate's job, not the watchdog's,
+        and reconnecting wouldn't make Kraken send a first snapshot any sooner.
+        """
+        return [
+            p for p, b in self.books.items()
+            if b.ts is not None and b.age_seconds(now) > self.stale_after_s
+        ]
+
+    async def _recover_stale_feed(self, now: datetime, stale: list[str]) -> None:
+        """Surface a FEED_STALL alert and close the socket so run() reconnects
+        and resubscribes (a fresh snapshot resets every book's ts)."""
+        ages = {p: round(self.books[p].age_seconds(now)) for p in stale}
+        logger.warning("Feed stall detected — forcing reconnect. Stale (s): %s", ages)
+        try:
+            from backend.repositories import system_alerts_repo as alerts
+            alerts.insert(
+                level="error", code="FEED_STALL", strategy_id=None,
+                message=f"Order book feed stalled; forcing reconnect: {ages}",
+                payload={"stale_pairs": ages, "stale_after_s": self.stale_after_s,
+                         "ws_alive": self.is_ws_healthy(now)},
+            )
+        except Exception:
+            # Best-effort — a failed alert insert must not stop the recovery.
+            logger.exception("Failed to insert FEED_STALL alert")
+        ws = self._ws
+        if ws is not None:
             try:
-                async with websockets.connect(KRAKEN_WS_URL,
-                                              ping_interval=20,
-                                              close_timeout=10) as ws:
-                    await ws.send(json.dumps({
-                        "method": "subscribe",
-                        "params": {"channel": "book", "symbol": self.pairs, "depth": 25},
-                    }))
-                    await ws.send(json.dumps({
-                        "method": "subscribe",
-                        "params": {"channel": "trade", "symbol": self.pairs},
-                    }))
-                    # Heartbeat = 1Hz keepalive when WS is connected. Lets us
-                    # detect a disconnect within seconds even when low-volume
-                    # pairs have no book/trade activity.
-                    await ws.send(json.dumps({
-                        "method": "subscribe",
-                        "params": {"channel": "heartbeat"},
-                    }))
-                    backoff = 1
-                    async for raw in ws:
-                        await self._handle(json.loads(raw))
+                await ws.close()
             except Exception:
-                logger.exception("Kraken WS disconnected — reconnecting in %ds", backoff)
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 60)
+                logger.exception("Failed to close stalled WS")
+
+    async def _watchdog_tick(self, now: datetime) -> list[str]:
+        stale = self._stale_pairs(now)
+        if stale:
+            await self._recover_stale_feed(now, stale)
+        return stale
+
+    async def _watchdog(self) -> None:
+        while True:
+            await asyncio.sleep(self.watchdog_interval_s)
+            try:
+                await self._watchdog_tick(datetime.now(timezone.utc))
+            except Exception:
+                logger.exception("Price feed watchdog tick failed")
+
+    async def run(self) -> None:
+        watchdog = asyncio.create_task(self._watchdog(), name="price_feed_watchdog")
+        backoff = 1
+        try:
+            while True:
+                try:
+                    async with websockets.connect(KRAKEN_WS_URL,
+                                                  ping_interval=20,
+                                                  close_timeout=10) as ws:
+                        self._ws = ws
+                        await ws.send(json.dumps({
+                            "method": "subscribe",
+                            "params": {"channel": "book", "symbol": self.pairs, "depth": 25},
+                        }))
+                        await ws.send(json.dumps({
+                            "method": "subscribe",
+                            "params": {"channel": "trade", "symbol": self.pairs},
+                        }))
+                        # Heartbeat = 1Hz keepalive when WS is connected. Lets us
+                        # detect a disconnect within seconds even when low-volume
+                        # pairs have no book/trade activity.
+                        await ws.send(json.dumps({
+                            "method": "subscribe",
+                            "params": {"channel": "heartbeat"},
+                        }))
+                        backoff = 1
+                        async for raw in ws:
+                            await self._handle(json.loads(raw))
+                except Exception:
+                    logger.exception("Kraken WS disconnected — reconnecting in %ds", backoff)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 60)
+                finally:
+                    self._ws = None
+        finally:
+            watchdog.cancel()
 
     async def _handle(self, msg: dict) -> None:
         # Refresh the WS-health timestamp on every inbound message so the

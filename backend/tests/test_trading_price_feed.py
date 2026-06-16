@@ -97,3 +97,63 @@ def test_heartbeat_message_refreshes_health_without_affecting_books():
     assert feed.last_message_at is not None
     # The heartbeat path must not touch the per-pair book.
     assert feed.books["ETH/AUD"].ts is None
+
+
+# ── Feed watchdog (stalled book channel) ────────────────────────────────
+# Kraken keeps the WS connection alive with 1Hz heartbeats, so when the `book`
+# channel silently stops delivering updates no socket exception fires and the
+# existing reconnect loop never triggers — book.ts just freezes (all four alt
+# feeds froze for >2h on 2026-06-16). The watchdog detects a populated book that
+# has gone stale past a threshold and forces a reconnect + alert.
+
+class _FakeWS:
+    def __init__(self):
+        self.closed = False
+
+    async def close(self):
+        self.closed = True
+
+
+def test_stale_pairs_flags_only_populated_stale_books():
+    feed = PriceFeed(pairs=["ETH/AUD", "SOL/AUD", "ADA/AUD"],
+                     stale_after_s=90.0, bus=EventBus())
+    now = datetime.now(timezone.utc)
+    feed.books["ETH/AUD"].ts = now - timedelta(seconds=200)  # stale → flag
+    feed.books["SOL/AUD"].ts = now - timedelta(seconds=5)    # fresh → ignore
+    # ADA/AUD keeps ts=None (never connected) — must NOT be flagged: a
+    # never-warmed book is the warm-up gate's job, not the watchdog's.
+    assert feed._stale_pairs(now) == ["ETH/AUD"]
+
+
+@pytest.mark.asyncio
+async def test_watchdog_tick_recovers_when_book_stale(monkeypatch):
+    alerts = []
+    monkeypatch.setattr(
+        "backend.repositories.system_alerts_repo.insert",
+        lambda **kw: alerts.append(kw) or "id")
+    feed = PriceFeed(pairs=["ETH/AUD"], stale_after_s=90.0, bus=EventBus())
+    feed._ws = _FakeWS()
+    now = datetime.now(timezone.utc)
+    feed.books["ETH/AUD"].ts = now - timedelta(seconds=120)
+
+    await feed._watchdog_tick(now)
+
+    assert feed._ws.closed is True, "stale feed must force a reconnect"
+    assert alerts and alerts[0]["code"] == "FEED_STALL"
+
+
+@pytest.mark.asyncio
+async def test_watchdog_tick_noop_when_books_fresh(monkeypatch):
+    alerts = []
+    monkeypatch.setattr(
+        "backend.repositories.system_alerts_repo.insert",
+        lambda **kw: alerts.append(kw) or "id")
+    feed = PriceFeed(pairs=["ETH/AUD"], stale_after_s=90.0, bus=EventBus())
+    feed._ws = _FakeWS()
+    now = datetime.now(timezone.utc)
+    feed.books["ETH/AUD"].ts = now - timedelta(seconds=5)
+
+    await feed._watchdog_tick(now)
+
+    assert feed._ws.closed is False
+    assert alerts == []
