@@ -8,11 +8,28 @@ from __future__ import annotations
 
 import logging
 
+import httpx
+
 from backend.models.trading import StrategyRow
 from backend.services.trading.event_bus import EventBus, get_default_bus
 from backend.services.trading.trigger_state import TriggerConfig, TriggerState
 
 logger = logging.getLogger(__name__)
+
+# Transient I/O failures (a Kraken/Supabase REST blip, a dropped connection)
+# must NOT auto-pause a strategy. emergency_stop is a one-way door — a paused
+# strategy never resumes itself — so before this guard a single ReadTimeout
+# permanently killed a strategy mid-experiment (Mean-Reversion-Rule sat in cash
+# for two weeks after one timeout on 2026-06-03). These are retried implicitly:
+# the strategy fires again on its next trigger. Genuine logic errors (ValueError,
+# KeyError, a real bug) are NOT in this set and still pause, so a broken strategy
+# can't keep placing garbage orders.
+_TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
+    httpx.TimeoutException,   # ReadTimeout / ConnectTimeout / WriteTimeout / PoolTimeout
+    httpx.TransportError,     # ConnectError / ReadError / WriteError / NetworkError / ProtocolError
+    TimeoutError,             # builtin; socket.timeout aliases to this (py3.10+)
+    ConnectionError,          # builtin ConnectionReset/Aborted/Refused
+)
 
 
 # Re-export for monkeypatching in tests; real implementation in llm_strategy.py.
@@ -258,6 +275,13 @@ async def strategy_loop(
                 await invoke_llm_strategy(strategy, event)
             else:
                 await invoke_deterministic_strategy(strategy, event)
+        except _TRANSIENT_ERRORS as exc:
+            # Network blip — log and skip this tick; the strategy fires again on
+            # its next trigger. Do NOT pause (see _TRANSIENT_ERRORS rationale).
+            logger.warning(
+                "Strategy %s: transient error %r — skipping this tick, staying active",
+                strategy.name, exc,
+            )
         except Exception as exc:
             await emergency_stop(strategy, exc)
         iterations += 1

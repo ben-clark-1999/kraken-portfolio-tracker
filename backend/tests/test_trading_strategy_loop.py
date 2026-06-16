@@ -126,3 +126,35 @@ async def test_loop_exception_pauses_strategy_and_continues(monkeypatch):
                                             ts=datetime.now(timezone.utc)))
     await asyncio.wait_for(task, timeout=2.0)
     assert paused and "boom" in paused[0][1]
+
+
+@pytest.mark.asyncio
+async def test_loop_transient_network_error_does_not_pause(monkeypatch):
+    """A transient network blip (httpx read/connect timeout) must NOT auto-pause
+    the strategy — it should be logged and the tick skipped, so a single
+    timeout doesn't permanently kill a strategy mid-experiment. This is the
+    root cause of the Mean-Reversion-Rule pause: one ReadTimeout on 2026-06-03
+    auto-paused it for two weeks."""
+    import httpx
+
+    bus = EventBus()
+    paused = []
+
+    async def flaky_llm(strategy, event):
+        raise httpx.ReadTimeout("The read operation timed out")
+
+    async def fake_emergency_stop(strategy, exc):
+        paused.append((strategy.id, str(exc)))
+
+    monkeypatch.setattr(
+        "backend.services.trading.strategy_loop.invoke_llm_strategy", flaky_llm)
+    monkeypatch.setattr(
+        "backend.services.trading.strategy_loop.emergency_stop", fake_emergency_stop)
+
+    strat = _strategy("llm_agent")
+    task = asyncio.create_task(strategy_loop(strat, bus=bus, max_iterations=1))
+    await asyncio.sleep(0.01)
+    await bus.publish(IntervalTriggerEvent(minutes=60,
+                                            ts=datetime.now(timezone.utc)))
+    await asyncio.wait_for(task, timeout=2.0)
+    assert paused == [], "transient network error must not pause the strategy"
